@@ -1,0 +1,186 @@
+# =============================================================================
+# CampusFlow — Root .gitignore
+# Covers: Python/FastAPI backend + Next.js/TypeScript frontend
+# =============================================================================
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Environment & Secrets  (NEVER commit these)
+# ──────────────────────────────────────────────────────────────────────────────
+.env
+.env.*
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+*.pem
+*.key
+*.cert
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Python / FastAPI Backend
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+backend/venv/
+backend/.venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Distribution / packaging
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytestdebug.log
+
+# mypy / pyright / ruff
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.ruff_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Next.js / Node.js Frontend
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js build output
+.next/
+frontend/.next/
+/out/
+
+# Production build
+/build
+frontend/build/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Testing
+# ──────────────────────────────────────────────────────────────────────────────
+/coverage
+frontend/coverage/
+*.lcov
+.nyc_output
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Logs
+# ──────────────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ──────────────────────────────────────────────────────────────────────────────
+# OS & Editor artifacts
+# ──────────────────────────────────────────────────────────────────────────────
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+
+# VSCode
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# JetBrains / PyCharm / WebStorm
+.idea/
+*.iml
+*.iws
+*.ipr
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Misc
+# ──────────────────────────────────────────────────────────────────────────────
+*.tmp
+*.temp
+*.swp
+*.swo
+.sass-cache/
+.eslintcache
