@@ -19,7 +19,9 @@ This file serves as the definitive context map for any LLM working on the Campus
 - **Typography:** Uses the 'Inter' font. Keep text tracking slightly tight for headers.
 
 ## 3. Features Implemented Till Now
-- **Database Schema:** Fully initialized with `profiles`, `students`, `teachers`, `classrooms`, `classes`, `terms`, and `timetable_slots`. RLS policies are active.
+- **Database Schema:** No `profiles` table — identity is split per role into `students`, `teachers`, and `admins`, each linked to `auth.users` via a nullable `user_id` (so admins can pre-create roster rows before a person signs up). Plus `subjects`, `terms`, `classes`, `student_classes`, `classrooms`, `timetable_slots`, `announcements`, `assignments`, `marks`. RLS is active on every table.
+  - **Role resolution:** call the `auth_role()` RPC (`supabase.rpc("auth_role")`) — returns `'admin' | 'teacher' | 'student'` for the logged-in user. Used by middleware, the dashboard layout, and all RLS policies. Do **not** query a `profiles` table.
+  - **Triggers:** `handle_new_user` auto-creates the `students`/`teachers` row on signup from `raw_user_meta_data` (`role`, `full_name`) — admins are provisioned manually, never via signup. `set_updated_at` maintains `updated_at` on every table. `sync_slot_from_class` keeps `timetable_slots.teacher_id/term_id` aligned with the parent class.
 - **Conflict Constraints:** Uses PostgreSQL `EXCLUDE USING gist` with `int4range` for detecting overlapping class times of variable durations at the DB level.
 - **Auth System:** Next.js Middleware with `@supabase/ssr`. Role-based routing (Student, Teacher, Admin). Custom `AuthLayout`, `Login`, and `Register` pages.
 - **Dashboard Layout:** A central dynamic `DashboardLayout` component that adjusts its sidebar based on the logged-in role.

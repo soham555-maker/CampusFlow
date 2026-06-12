@@ -12,7 +12,7 @@ CampusFlow is a high-end, glassmorphism-styled web application that centralises 
 | Area | Details |
 |------|---------|
 | **Authentication** | Supabase Auth with Next.js middleware. Role-based routing: `Student`, `Teacher`, `Admin` |
-| **Database Schema** | `profiles`, `students`, `teachers`, `classrooms`, `classes`, `terms`, `timetable_slots` with Row-Level Security (RLS) |
+| **Database Schema** | Per-role identity tables `students` / `teachers` / `admins` (linked to `auth.users` via `user_id`, **no `profiles` table**), plus `subjects`, `terms`, `classes`, `student_classes`, `classrooms`, `timetable_slots`, `announcements`, `assignments`, `marks` — all with Row-Level Security (RLS). Role is resolved via the `auth_role()` RPC; a `handle_new_user` trigger auto-provisions the student/teacher row on signup |
 | **Conflict Detection** | PostgreSQL `EXCLUDE USING gist` with `int4range` — overlapping class-time conflicts caught at DB level |
 | **Dashboard Layout** | Role-aware dynamic sidebar via `DashboardLayout`; adjusts navigation per logged-in role |
 | **Timetable Grid** | Custom absolute-positioned `<TimetableGrid />` that renders variable-length time slots accurately |
