@@ -16,6 +16,16 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 -- Helper functions (no table dependencies)
 -- --------------------------------------------------------------------------
 
+-- Generate a random uppercase alphanumeric string (used for join codes).
+CREATE OR REPLACE FUNCTION public.generate_join_code(length int DEFAULT 8)
+RETURNS text
+LANGUAGE sql
+VOLATILE
+SET search_path = ''
+AS $$
+  SELECT upper(substring(md5(gen_random_uuid()::text) FROM 1 FOR length));
+$$;
+
 -- Convert TIME to minutes since midnight (used by the overlap EXCLUDE checks).
 CREATE OR REPLACE FUNCTION public.time_to_minutes(t time without time zone)
 RETURNS integer
@@ -107,6 +117,7 @@ CREATE TABLE public.terms (
     start_date date,
     end_date   date,
     is_active  boolean DEFAULT false,
+    join_code  text UNIQUE DEFAULT public.generate_join_code(6),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -119,6 +130,7 @@ CREATE TABLE public.classes (
     term_id    uuid NOT NULL REFERENCES public.terms(id)    ON DELETE RESTRICT,
     semester   int,
     division   text,
+    join_code  text UNIQUE DEFAULT public.generate_join_code(8),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT classes_subject_term_division_key UNIQUE (subject_id, term_id, division)
@@ -385,6 +397,14 @@ CREATE POLICY "Admins manage classes"       ON public.classes         FOR ALL
 CREATE POLICY "Anyone can view enrollments" ON public.student_classes FOR SELECT USING (true);
 CREATE POLICY "Admins manage enrollments"   ON public.student_classes FOR ALL
   USING ((SELECT public.auth_role()) = 'admin') WITH CHECK ((SELECT public.auth_role()) = 'admin');
+CREATE POLICY "Students can self-enroll" ON public.student_classes FOR INSERT
+  WITH CHECK (
+    student_id IN (SELECT id FROM public.students WHERE user_id = (SELECT auth.uid()))
+  );
+CREATE POLICY "Students can unenroll self" ON public.student_classes FOR DELETE
+  USING (
+    student_id IN (SELECT id FROM public.students WHERE user_id = (SELECT auth.uid()))
+  );
 
 -- Timetable slots (public read; teacher-own + admin write)
 CREATE POLICY "Anyone can view timetable slots" ON public.timetable_slots FOR SELECT USING (true);
