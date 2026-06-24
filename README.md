@@ -2,7 +2,7 @@
 
 > **A premium, full-stack campus management platform** — built with Next.js 14, FastAPI, and Supabase.
 
-CampusFlow is a high-end, glassmorphism-styled web application that centralises timetable management, role-based administration, and future-ready features like OCR-based schedule ingestion and an interactive 3D campus map — all in a single, cohesive platform.
+CampusFlow centralises timetable management, role-based administration, and future-ready features like OCR-based schedule ingestion and an interactive 3D campus map — all in a single, cohesive glassmorphism-styled platform.
 
 ---
 
@@ -12,24 +12,28 @@ CampusFlow is a high-end, glassmorphism-styled web application that centralises 
 | Area | Details |
 |------|---------|
 | **Authentication** | Supabase Auth with Next.js middleware. Role-based routing: `Student`, `Teacher`, `Admin` |
-| **Database Schema** | Per-role identity tables `students` / `teachers` / `admins` (linked to `auth.users` via `user_id`, **no `profiles` table**), plus `subjects`, `terms`, `classes`, `student_classes`, `classrooms`, `timetable_slots`, `announcements`, `assignments`, `marks` — all with Row-Level Security (RLS). Role is resolved via the `auth_role()` RPC; a `handle_new_user` trigger auto-provisions the student/teacher row on signup |
-| **Conflict Detection** | PostgreSQL `EXCLUDE USING gist` with `int4range` — overlapping class-time conflicts caught at DB level |
-| **Dashboard Layout** | Role-aware dynamic sidebar via `DashboardLayout`; adjusts navigation per logged-in role |
-| **Timetable Grid** | Custom absolute-positioned `<TimetableGrid />` that renders variable-length time slots accurately |
-| **FastAPI Backend** | Programmatic timetable conflict-checking endpoint (`/timetable/check-conflicts`) |
-| **Admin CRUD** | Manage Students, Teachers, Classes, and Classrooms via reusable `<DataTable />` and `<Modal />` components |
-| **UI Shell Pages** | Placeholder UIs for Virtual Classroom, OCR Engine, and Interactive Campus Map |
+| **Database Schema** | 12 tables with full RLS. Per-role identity (`students`/`teachers`/`admins`). No `profiles` table. `handle_new_user` trigger auto-provisions rows on signup. `sync_slot_from_class` trigger syncs timetable slot metadata. |
+| **Join Codes** | `classes.join_code` and `terms.join_code` — auto-generated. Students self-enroll via `POST /classes/join`. |
+| **Conflict Detection** | Two-layer: API pre-check (room + teacher overlap) + PostgreSQL `EXCLUDE USING gist` DB constraint |
+| **Complete REST API** | 35 endpoints across 10 routers — full CRUD for every entity |
+| **Auth Middleware** | FastAPI JWT Bearer dependency + role guards (`require_admin`, `require_teacher`, etc.) |
+| **Timetable** | `GET /timetable/my`, Free Room Finder, Teacher Availability with free-window computation |
+| **Dashboard Layout** | Role-aware dynamic sidebar via `DashboardLayout` |
+| **Timetable Grid** | Custom absolute-positioned `<TimetableGrid />` — variable-length slot rendering |
+| **Admin CRUD UI** | Manage Students, Teachers, Classes, Classrooms via `<DataTable />` and `<Modal />` |
+| **Test Suite** | `seed_data.py` (full DB seeding + teardown) + `test_api.py` (HTTP auth guards + DB constraint tests) |
 
 ### 🔲 Pending / In Progress
-- Free Room Finder & Teacher Availability interfaces
-- Live data hookup: `TimetableGrid` ↔ FastAPI / Supabase
-- Secure Admin API hookups for adding students and teachers
+- Wire `<TimetableGrid />` to live FastAPI data (`GET /timetable/my`)
+- Admin modal → FastAPI hookups (replace direct Supabase calls)
+- Student self-enrollment UI (join code input → `POST /classes/join`)
+- Free Room Finder & Teacher Availability frontend interfaces
 - Empty states, loading skeletons, toast notifications, mobile responsive QA
+- Virtual Classroom portal (Announcements, Assignments, Grading — backend ready)
 
 ### 🔮 Future Vision
 - **OCR Intelligence** — upload a timetable image/PDF → auto-create DB records
 - **Interactive 3D Campus Map** — live room occupancy from current timetable
-- **Virtual Classroom** — assignments, announcements, and grading portal
 
 ---
 
@@ -41,40 +45,57 @@ CampusFlow/
 │   ├── src/
 │   │   ├── app/               # Pages & layouts (App Router)
 │   │   │   ├── (auth)/        # Login & Register pages
-│   │   │   ├── (dashboard)/   # Protected dashboard routes
-│   │   │   │   ├── admin/     # Student, Teacher, Class, Classroom CRUD
-│   │   │   │   ├── teacher/   # Teacher-specific views
-│   │   │   │   └── student/   # Student-specific views
+│   │   │   └── (dashboard)/   # Protected dashboard routes
+│   │   │       ├── admin/     # Student, Teacher, Class, Classroom CRUD
+│   │   │       ├── teacher/   # Teacher-specific views
+│   │   │       └── student/   # Student-specific views
 │   │   ├── components/
 │   │   │   ├── ui/            # Reusable glass-panel components
 │   │   │   └── timetable/     # TimetableGrid component
 │   │   ├── hooks/             # Custom React hooks
 │   │   ├── lib/               # Supabase client helpers (@supabase/ssr)
-│   │   ├── utils/             # Utility functions (cn, etc.)
 │   │   └── middleware.ts      # Auth & role-based route protection
-│   ├── .env.local             # ⚠️ NOT committed — see env setup below
 │   └── package.json
 │
 ├── backend/                   # FastAPI (Python)
+│   ├── auth/
+│   │   ├── dependencies.py    # get_current_user, get_user_role
+│   │   └── guards.py          # Role guard dependencies
+│   ├── migrations/
+│   │   └── 001_add_join_codes.sql
 │   ├── routers/
-│   │   └── timetable.py       # Conflict-checking API endpoints
-│   ├── schemas/               # Pydantic models
-│   ├── auth/                  # Auth utilities
-│   ├── utils/                 # Shared helpers
-│   ├── config.py              # Settings (reads from .env)
-│   ├── main.py                # FastAPI app entry point
-│   ├── requirements.txt
-│   └── .env                   # ⚠️ NOT committed — see env setup below
+│   │   ├── students.py        # Self-service + admin CRUD
+│   │   ├── teachers.py        # Admin CRUD
+│   │   ├── subjects.py        # Admin CRUD
+│   │   ├── terms.py           # Admin CRUD
+│   │   ├── classrooms.py      # Admin CRUD
+│   │   ├── classes.py         # Admin CRUD + student self-enrollment
+│   │   ├── announcements.py   # Teacher/admin write, student read
+│   │   ├── assignments.py     # Teacher/admin write, student read
+│   │   ├── marks.py           # Teacher write, student read own
+│   │   └── timetable_slots.py # Full timetable + conflict detection
+│   ├── schemas/               # Pydantic models (one file per table)
+│   ├── tests/
+│   │   ├── seed_data.py       # DB seed + teardown
+│   │   └── test_api.py        # Integration tests
+│   ├── utils/
+│   │   └── conflict.py        # Two-layer conflict detection logic
+│   ├── config.py              # Supabase client factory
+│   ├── main.py                # FastAPI app — registers all routers
+│   └── requirements.txt
 │
-├── supabase_schema.sql        # Full DB schema with RLS policies
+├── supabase_schema.sql        # Full DB schema (tables, RLS, triggers, functions)
 ├── LLM-Context.md             # AI assistant context map
 └── README.md
 ```
 
 ### Data-Access Pattern
-- **Simple CRUD** → Next.js Server Actions / Client hooks using `@supabase/ssr` directly
-- **Complex / conflict-heavy logic** → routed to the FastAPI backend
-- **AI processing (OCR)** → FastAPI backend (future)
+| Use case | Layer |
+|----------|-------|
+| Simple CRUD | Next.js Server Actions / `@supabase/ssr` |
+| Auth-gated reads (timetable, enrolled classes) | FastAPI → service-role Supabase client |
+| Conflict-heavy writes (timetable slots) | FastAPI with two-layer conflict check |
+| AI / OCR processing | FastAPI backend (future) |
 
 ---
 
@@ -85,8 +106,9 @@ CampusFlow/
 | **Frontend** | Next.js 14 (App Router), React 19, TypeScript 5 |
 | **Styling** | TailwindCSS v4, custom glassmorphism tokens, Framer Motion |
 | **State / Forms** | Zustand, React Hook Form, Zod |
-| **Backend** | FastAPI, Uvicorn, Pydantic |
+| **Backend** | FastAPI, Uvicorn, Pydantic v2 |
 | **Database & Auth** | Supabase (PostgreSQL + Auth + RLS) |
+| **HTTP client (tests)** | httpx |
 | **Icons** | Lucide React |
 
 ---
@@ -101,7 +123,6 @@ CampusFlow/
 ---
 
 ### 1. Clone the repository
-
 ```bash
 git clone https://github.com/<your-username>/CampusFlow.git
 cd CampusFlow
@@ -112,8 +133,8 @@ cd CampusFlow
 ### 2. Database Setup
 
 1. Open your Supabase project → **SQL Editor**
-2. Paste and run the contents of [`supabase_schema.sql`](./supabase_schema.sql)
-3. This creates all tables, constraints, RLS policies, and triggers.
+2. Paste and run [`supabase_schema.sql`](./supabase_schema.sql) — creates all tables, constraints, RLS, triggers
+3. Paste and run [`backend/migrations/001_add_join_codes.sql`](./backend/migrations/001_add_join_codes.sql) — adds join codes + student self-enrollment policies
 
 ---
 
@@ -121,31 +142,28 @@ cd CampusFlow
 
 ```bash
 cd backend
-
-# Create & activate a virtual environment
 python -m venv venv
-# Windows:
-venv\Scripts\activate
-# macOS / Linux:
-source venv/bin/activate
-
-# Install dependencies
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Create your **`backend/.env`** file:
-
+Create **`backend/.env`**:
 ```env
 SUPABASE_URL=https://<your-project-id>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+CORS_ORIGINS=http://localhost:3000   # comma-separated for multiple origins
 ```
 
 Start the dev server:
-
 ```bash
 uvicorn main:app --reload
-# API available at http://localhost:8000
-# Swagger docs at http://localhost:8000/docs
+# API at http://localhost:8000
+# Swagger at http://localhost:8000/docs
+```
+
+Run tests (requires real Supabase credentials):
+```bash
+python -m tests.test_api
 ```
 
 ---
@@ -157,25 +175,20 @@ cd frontend
 npm install
 ```
 
-Create your **`frontend/.env.local`** file:
-
+Create **`frontend/.env.local`**:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://<your-project-id>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
 ```
 
-Start the dev server:
-
 ```bash
 npm run dev
-# App available at http://localhost:3000
+# App at http://localhost:3000
 ```
 
 ---
 
 ## 🎨 UI Design System
-
-CampusFlow uses a **high-end glassmorphism** aesthetic:
 
 | Token | Value |
 |-------|-------|
@@ -187,36 +200,72 @@ CampusFlow uses a **high-end glassmorphism** aesthetic:
 | Muted Text | `gray-400` |
 | Font | Inter (Google Fonts) |
 
-- Use **`.glass-panel`** CSS class or the **`<GlassCard>`** wrapper component for standard cards.
-- Use the **`cn()`** utility for conditional class merging.
-- Always prefer components from `frontend/src/components/ui/` before building new ones.
+Use **`.glass-panel`** or **`<GlassCard>`** for cards. Use **`cn()`** for class merging.
 
 ---
 
 ## 📡 API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/` | Health check |
-| `POST` | `/timetable/check-conflicts` | Check for scheduling conflicts |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/` | — | Health check |
+| `GET` | `/students/me` | Student | Own profile |
+| `PUT` | `/students/me` | Student | Update own profile |
+| `GET/POST` | `/students` | Admin | List / create students |
+| `GET/PUT/DELETE` | `/students/{id}` | Admin | Get / update / delete |
+| `GET/POST` | `/teachers` | Admin | List / create teachers |
+| `GET/PUT/DELETE` | `/teachers/{id}` | Admin | Get / update / delete |
+| `GET/POST` | `/subjects` | Admin | List / create subjects |
+| `PUT/DELETE` | `/subjects/{id}` | Admin | Update / delete |
+| `GET/POST` | `/terms` | Admin | List (`?active_only`) / create |
+| `PUT/DELETE` | `/terms/{id}` | Admin | Update / delete |
+| `GET/POST` | `/classrooms` | Admin | List / create classrooms |
+| `PUT/DELETE` | `/classrooms/{id}` | Admin | Update / delete |
+| `GET` | `/classes/my` | Any | Classes for current user |
+| `POST` | `/classes/join` | Student | Self-enroll by join code |
+| `DELETE` | `/classes/{id}/leave` | Student | Unenroll self |
+| `GET/POST` | `/classes` | Admin | List (with joins) / create |
+| `PUT/DELETE` | `/classes/{id}` | Admin | Update / delete |
+| `GET` | `/classes/{id}/students` | Admin | List enrolled students |
+| `POST` | `/classes/{id}/enroll` | Admin | Force-enroll a student |
+| `DELETE` | `/classes/{id}/enroll/{sid}` | Admin | Force-unenroll |
+| `GET` | `/timetable` | Any | All slots (`?term_id`) |
+| `GET` | `/timetable/my` | Any | Slots for current user |
+| `GET` | `/timetable/teacher/{id}` | Any | Slots by teacher |
+| `GET` | `/timetable/student/{id}` | Any | Slots by student |
+| `GET` | `/timetable/classrooms/available` | Any | Free Room Finder |
+| `GET` | `/timetable/teacher-availability` | Any | Teacher free/busy windows |
+| `POST` | `/timetable` | Teacher/Admin | Create slot (conflict-checked) |
+| `PUT` | `/timetable/{id}` | Teacher/Admin | Update slot (conflict-checked) |
+| `DELETE` | `/timetable/{id}` | Teacher/Admin | Delete slot |
+| `POST` | `/timetable/check-conflicts` | — | Conflict pre-check |
+| `GET/POST` | `/announcements` | Any/Teacher | List / create |
+| `PUT/DELETE` | `/announcements/{id}` | Teacher/Admin | Update / delete |
+| `GET/POST` | `/assignments` | Any/Teacher | List / create |
+| `PUT/DELETE` | `/assignments/{id}` | Teacher/Admin | Update / delete |
+| `GET` | `/marks` | Teacher/Admin | Marks for an assignment |
+| `GET` | `/marks/student/{id}` | Any | Student's marks |
+| `POST` | `/marks` | Teacher/Admin | Grade a student |
+| `PUT` | `/marks/{id}` | Teacher/Admin | Update grade |
 
 > Full interactive docs at **`http://localhost:8000/docs`** when the backend is running.
 
 ---
 
-## 🔒 Environment Variables Reference
-
-### `frontend/.env.local`
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key (safe for browser) |
+## 🔒 Environment Variables
 
 ### `backend/.env`
 | Variable | Description |
 |----------|-------------|
-| `SUPABASE_URL` | Your Supabase project URL |
+| `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Secret** service-role key (server-side only) |
+| `CORS_ORIGINS` | Comma-separated allowed origins (default: `http://localhost:3000`) |
+
+### `frontend/.env.local`
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key (safe for browser) |
 
 > ⚠️ **Never commit `.env` files.** They are excluded by `.gitignore`.
 
@@ -224,10 +273,7 @@ CampusFlow uses a **high-end glassmorphism** aesthetic:
 
 ## 📁 Key Files for AI Assistants
 
-If you are an AI assistant working on this project, read **[`LLM-Context.md`](./LLM-Context.md)** first. It contains:
-- Implemented vs. pending features
-- Design system conventions
-- Data-access patterns and architectural decisions
+Read **[`LLM-Context.md`](./LLM-Context.md)** first. It contains the authoritative context map, file-by-file descriptions, implemented vs. pending features, and the backend auth pattern.
 
 ---
 
