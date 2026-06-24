@@ -43,10 +43,6 @@ app.include_router(assignments.router)
 app.include_router(marks.router)
 app.include_router(timetable_slots.router)
 
-# Keep old timetable.py router registered under its original path for any
-# existing callers, but timetable_slots supersedes it.
-# (Omit it — the new router covers all old endpoints + more)
-
 
 @app.get("/", tags=["health"])
 def health_check():
