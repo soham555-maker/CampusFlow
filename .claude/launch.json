@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "campusflow-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "/home/soham/Projects/CampusFlow/frontend",
+      "port": 3000
+    }
+  ]
+}
