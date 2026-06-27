@@ -1,0 +1,329 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0a0a0f;
+  --color-surface: rgba(255, 255, 255, 0.03);
+  --color-border: rgba(255, 255, 255, 0.05);
+  --color-accent-purple: #8b5cf6;
+  --color-accent-cyan: #06b6d4;
+  --color-text-primary: #ffffff;
+  --color-text-muted: #9ca3af;
+  --font-sans: "Inter", sans-serif;
+  /* Marketing typefaces (scoped to the landing page via .font-display / .font-body) */
+  --font-display: var(--font-clash), "Clash Display", ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-satoshi), "Satoshi", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body {
+    background-color: #0a0a0f;
+    color: #ffffff;
+    font-family: "Inter", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: rgba(139, 92, 246, 0.3);
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .glass-panel-hover {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+
+  .glass-panel-hover:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .accent-gradient {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+  }
+
+  .accent-gradient-text {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s ease, transform 0.1s ease;
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: #9ca3af;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .btn-ghost:hover {
+    color: white;
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .input-glass {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: white;
+    padding: 10px 14px;
+    width: 100%;
+    outline: none;
+    font-family: inherit;
+    font-size: 14px;
+    transition: border-color 0.2s ease;
+  }
+
+  .input-glass::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .input-glass:focus {
+    border-color: rgba(139, 92, 246, 0.5);
+  }
+}
+
+/* =========================================================
+   Landing page — iOS frosted-glass marketing surface.
+   Scoped helpers; the app proper keeps Inter + .glass-panel.
+   ========================================================= */
+
+@layer components {
+  /* Elevated iOS glass: floating nav, hero panel, floating chips.
+     Matte finish — soft lift, low gloss, a whisper of a top edge. */
+  .glass-matte {
+    background: linear-gradient(
+      177deg,
+      rgba(255, 255, 255, 0.055),
+      rgba(255, 255, 255, 0.022)
+    );
+    border: 1px solid rgba(255, 255, 255, 0.085);
+    backdrop-filter: blur(22px) saturate(116%);
+    -webkit-backdrop-filter: blur(22px) saturate(116%);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+      inset 0 -1px 0 0 rgba(0, 0, 0, 0.22),
+      0 20px 40px -24px rgba(0, 0, 0, 0.75);
+  }
+
+  /* Inline frosted surface: bento tiles, role panel, mockups. */
+  .glass-soft {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.075);
+    backdrop-filter: blur(14px) saturate(125%);
+    -webkit-backdrop-filter: blur(14px) saturate(125%);
+  }
+
+  /* Matte frosted glass — hero product panels. Solid diffuse frost, no gloss,
+     finished with a fine micro-grain so it reads as matte rather than wet glass. */
+  .glass-frost {
+    position: relative;
+    background: linear-gradient(
+      180deg,
+      rgba(28, 23, 46, 0.72),
+      rgba(19, 15, 32, 0.74)
+    );
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(26px) saturate(104%);
+    -webkit-backdrop-filter: blur(26px) saturate(104%);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.035),
+      0 30px 64px -36px rgba(0, 0, 0, 0.9);
+  }
+  /* Matte micro-grain — a faint overlay film that diffuses the surface so it
+     reads as matte. At 4% over content it's imperceptible on text. */
+  .glass-frost::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
+    opacity: 0.04;
+    mix-blend-mode: overlay;
+  }
+
+  /* A reusable specular sheen for the top edge of glass cards. */
+  .glass-sheen {
+    position: relative;
+    isolation: isolate;
+  }
+  .glass-sheen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      150deg,
+      rgba(255, 255, 255, 0.35),
+      rgba(255, 255, 255, 0) 38%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@layer utilities {
+  /* Fine film grain — fixed, behind content, textures the dark canvas. */
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.86' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.05;
+    mix-blend-mode: overlay;
+  }
+
+  /* Subtle grid used inside product mockups. */
+  .bg-blueprint {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .animate-aurora {
+    animation: aurora-drift 26s ease-in-out infinite alternate;
+  }
+  .animate-aurora-slow {
+    animation: aurora-drift 38s ease-in-out infinite alternate-reverse;
+  }
+  .animate-float {
+    animation: float-y 7s ease-in-out infinite;
+  }
+  .animate-float-slow {
+    animation: float-y 11s ease-in-out infinite;
+  }
+  .animate-scan {
+    animation: scan-y 3.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  .animate-pulse-ring {
+    animation: pulse-ring 2.6s ease-out infinite;
+  }
+}
+
+@keyframes aurora-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.75;
+  }
+  100% {
+    transform: translate3d(4%, -3%, 0) scale(1.12);
+    opacity: 1;
+  }
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes scan-y {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(2400%);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  70% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-aurora,
+  .animate-aurora-slow,
+  .animate-float,
+  .animate-float-slow,
+  .animate-scan,
+  .animate-pulse-ring {
+    animation: none !important;
+  }
+}
