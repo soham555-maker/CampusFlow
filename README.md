@@ -1,6 +1,6 @@
 # 🎓 CampusFlow
 
-> **A premium, full-stack campus management platform** — built with Next.js 14, FastAPI, and Supabase.
+> **A premium, full-stack campus management platform** — built with Next.js 15, FastAPI, and Supabase.
 
 CampusFlow centralises timetable management, role-based administration, and future-ready features like OCR-based schedule ingestion and an interactive 3D campus map — all in a single, cohesive glassmorphism-styled platform.
 
@@ -26,17 +26,16 @@ CampusFlow centralises timetable management, role-based administration, and futu
 | **Class Hub** | `/class` selector grid + `/class/[classId]` with Announcements, Assignments, Grades tabs |
 | **Toast System** | Zustand global store + glass-styled toast container |
 | **UI Component Library** | 13 components: GlassCard, Button, DataTable, Modal, Badge, SearchBar, FilterDropdown, StatCard, EmptyState, SkeletonLoader, Tabs, ConfirmDialog, Toast |
-| **Mock Data** | `mockData.ts` — Indian engineering college setting, mirrors all Supabase schemas |
-| **Test Suite** | `seed_data.py` + `test_api.py` (HTTP auth guards + DB constraint tests) |
+| **Live API Integration** | Every page is wired to FastAPI via a typed `apiFetch` client + **TanStack Query**. JWT-authenticated, role-scoped, with toast + cache-invalidation on every mutation. (`frontend/src/lib/api/`) |
+| **Conflict UX** | Adding/updating a slot surfaces backend `409` room/teacher double-booking errors as toasts |
+| **Test Suite** | `seed_data.py` + `test_api.py` — 45 assertions (auth guards, conflict logic, DB constraints, triggers) |
 
-> **Note:** The frontend is currently using static mock data from `frontend/src/lib/mockData.ts`. Real API wiring is planned for Release 2.
+> **Note:** The frontend is fully wired to the live backend. The former `mockData.ts` layer has been removed; data flows browser → `apiFetch` (Bearer JWT) → FastAPI → Supabase.
 
-### 🔲 Pending (Release 2)
-- Wire all pages to real FastAPI / Supabase API calls (replace mock data)
-- Admin CRUD modals → FastAPI endpoints (instead of direct Supabase)
-- Student self-enrollment UI (join code → `POST /classes/join`)
-- Conflict error toast on timetable 409 response
-- Mobile responsive QA
+### 🔲 Pending
+- Mobile responsive QA (320–768px)
+- OCR Engine (Release 3) and Campus Map (Release 4) pages — currently placeholders
+- Pre-deploy: address Supabase security advisors, set production `CORS_ORIGINS`
 
 ### 🔮 Future Vision
 - **OCR Intelligence** — upload a timetable image/PDF → auto-create DB records
@@ -77,12 +76,13 @@ CampusFlow/
 │   │   │       └── class/     # Class hub ([classId] dynamic route)
 │   │   ├── components/
 │   │   │   ├── ui/            # 13 reusable glass-panel components
+│   │   │   ├── providers/     # QueryProvider (TanStack Query)
 │   │   │   ├── layout/        # DashboardLayout, Sidebar
 │   │   │   ├── timetable/     # TimetableGrid, CalendarView
 │   │   │   └── landing/       # Landing page components
 │   │   ├── store/             # Zustand stores (toastStore)
 │   │   ├── lib/
-│   │   │   ├── mockData.ts    # Static mock data (Indian engineering college)
+│   │   │   ├── api/           # client, types, resources, hooks (the integration layer)
 │   │   │   └── supabase/      # Client + server helpers (@supabase/ssr)
 │   │   └── middleware.ts      # Auth & role-based route protection
 │   └── package.json
@@ -96,9 +96,11 @@ CampusFlow/
 │   ├── tests/
 │   │   ├── seed_data.py       # DB seed + teardown
 │   │   └── test_api.py        # Integration tests
-│   ├── utils/conflict.py      # Two-layer conflict detection logic
+│   ├── utils/
+│   │   ├── conflict.py        # Two-layer conflict detection logic
+│   │   └── db.py             # fetch_one() safe single-row helper
 │   ├── config.py
-│   ├── main.py
+│   ├── main.py               # CORS, load_dotenv, GET /auth/role
 │   └── requirements.txt
 │
 ├── supabase_schema.sql        # Full DB schema (tables, RLS, triggers, functions)
@@ -107,11 +109,14 @@ CampusFlow/
 ```
 
 ### Data-Access Pattern
+All dynamic data flows through **one path**: the browser's `apiFetch` client attaches the Supabase session JWT and calls FastAPI, which uses the service-role key and scopes every query by the resolved role.
+
 | Use case | Layer |
 |----------|-------|
-| Simple CRUD | Next.js Server Actions / `@supabase/ssr` |
-| Auth-gated reads (timetable, enrolled classes) | FastAPI → service-role Supabase client |
-| Conflict-heavy writes (timetable slots) | FastAPI with two-layer conflict check |
+| All reads & writes | `apiFetch` (Bearer JWT) → FastAPI → Supabase |
+| Client cache / loading / refetch | TanStack Query hooks (`frontend/src/lib/api/hooks.ts`) |
+| Conflict-heavy writes (timetable slots) | FastAPI two-layer conflict check → `409` → toast |
+| Auth & role resolution | Supabase Auth (login/signup) + `GET /auth/role` |
 | AI / OCR processing | FastAPI backend (future) |
 
 ---
@@ -120,9 +125,9 @@ CampusFlow/
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | Next.js 14 (App Router), React 19, TypeScript 5 |
+| **Frontend** | Next.js 15 (App Router), React 19, TypeScript 5 |
 | **Styling** | TailwindCSS v4, custom glassmorphism tokens, Framer Motion |
-| **State / Forms** | Zustand, React Hook Form, Zod |
+| **Data / State / Forms** | TanStack Query (server state), Zustand (toasts), React Hook Form, Zod |
 | **Backend** | FastAPI, Uvicorn, Pydantic v2 |
 | **Database & Auth** | Supabase (PostgreSQL + Auth + RLS) |
 | **HTTP client (tests)** | httpx |
@@ -195,13 +200,18 @@ npm install
 Create **`frontend/.env.local`**:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://<your-project-id>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>     # anon key — NOT the service-role key
+NEXT_PUBLIC_API_URL=http://localhost:8000          # FastAPI base URL
 ```
+
+> Make sure the backend's `CORS_ORIGINS` includes the frontend's origin (`http://localhost:3000` or `:3001`).
 
 ```bash
 npm run dev
 # App at http://localhost:3000
 ```
+
+**Test logins** (seeded project): every account uses password `campusflow123` — e.g. `admin@campusflow.edu`, `sharma@campusflow.edu` (teacher), `aarav@campusflow.edu` (student).
 
 ---
 
@@ -226,6 +236,7 @@ Use **`.glass-panel`** or **`<GlassCard>`** for cards. Use **`cn()`** for class 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `GET` | `/` | — | Health check |
+| `GET` | `/auth/role` | Any | Current user's role (`admin`/`teacher`/`student`) |
 | `GET` | `/students/me` | Student | Own profile |
 | `PUT` | `/students/me` | Student | Update own profile |
 | `GET/POST` | `/students` | Admin | List / create students |
@@ -236,7 +247,8 @@ Use **`.glass-panel`** or **`<GlassCard>`** for cards. Use **`cn()`** for class 
 | `PUT/DELETE` | `/subjects/{id}` | Admin | Update / delete |
 | `GET/POST` | `/terms` | Admin | List (`?active_only`) / create |
 | `PUT/DELETE` | `/terms/{id}` | Admin | Update / delete |
-| `GET/POST` | `/classrooms` | Admin | List / create classrooms |
+| `GET` | `/classrooms` | Any | List classrooms (room directory) |
+| `POST` | `/classrooms` | Admin | Create classroom |
 | `PUT/DELETE` | `/classrooms/{id}` | Admin | Update / delete |
 | `GET` | `/classes/my` | Any | Classes for current user |
 | `POST` | `/classes/join` | Student | Self-enroll by join code |

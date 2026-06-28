@@ -1,5 +1,7 @@
 from datetime import time
 
+from utils.db import fetch_one
+
 
 def _times_overlap(s1: time, e1: time, s2: time, e2: time) -> bool:
     return max(s1, s2) < min(e1, e2)
@@ -37,15 +39,11 @@ def check_timetable_conflict(
 
     # Fetch classroom label for the error message
     room_label = str(slot["classroom_id"])
-    cr_res = (
-        supabase.table("classrooms")
-        .select("room_number")
-        .eq("id", str(slot["classroom_id"]))
-        .maybe_single()
-        .execute()
+    cr_row = fetch_one(
+        supabase.table("classrooms").select("room_number").eq("id", str(slot["classroom_id"]))
     )
-    if cr_res.data:
-        room_label = cr_res.data["room_number"]
+    if cr_row:
+        room_label = cr_row["room_number"]
 
     for row in existing_classroom.data:
         r_start = time.fromisoformat(row["start_time"])
@@ -72,15 +70,11 @@ def check_timetable_conflict(
     existing_teacher = teacher_query.execute()
 
     teacher_label = str(slot["teacher_id"])
-    tr_res = (
-        supabase.table("teachers")
-        .select("full_name")
-        .eq("id", str(slot["teacher_id"]))
-        .maybe_single()
-        .execute()
+    tr_row = fetch_one(
+        supabase.table("teachers").select("full_name").eq("id", str(slot["teacher_id"]))
     )
-    if tr_res.data:
-        teacher_label = tr_res.data["full_name"]
+    if tr_row:
+        teacher_label = tr_row["full_name"]
 
     for row in existing_teacher.data:
         r_start = time.fromisoformat(row["start_time"])

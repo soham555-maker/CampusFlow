@@ -1,14 +1,17 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List
 from schemas.classrooms import ClassroomCreate, ClassroomUpdate, ClassroomResponse
-from auth.guards import require_admin
+from auth.guards import require_admin, require_authenticated
 from config import get_supabase
 
 router = APIRouter(prefix="/classrooms", tags=["classrooms"])
 
 
+# Read is open to any authenticated user — the room directory is needed to label
+# timetable slots and to populate the room picker when adding/editing slots.
+# Writes remain admin-only.
 @router.get("", response_model=List[ClassroomResponse])
-def list_classrooms(user=Depends(require_admin)):
+def list_classrooms(user=Depends(require_authenticated)):
     supabase = get_supabase()
     res = supabase.table("classrooms").select("*").order("room_number").execute()
     return res.data

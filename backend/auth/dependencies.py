@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from config import get_supabase
+from utils.db import fetch_one
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -34,16 +35,13 @@ def get_user_role(user=Depends(get_current_user)) -> str:
     supabase = get_supabase()
     uid = user.id
     # Check admin
-    res = supabase.table("admins").select("id").eq("user_id", uid).maybe_single().execute()
-    if res.data:
+    if fetch_one(supabase.table("admins").select("id").eq("user_id", uid)):
         return "admin"
     # Check teacher
-    res = supabase.table("teachers").select("id").eq("user_id", uid).maybe_single().execute()
-    if res.data:
+    if fetch_one(supabase.table("teachers").select("id").eq("user_id", uid)):
         return "teacher"
     # Check student
-    res = supabase.table("students").select("id").eq("user_id", uid).maybe_single().execute()
-    if res.data:
+    if fetch_one(supabase.table("students").select("id").eq("user_id", uid)):
         return "student"
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

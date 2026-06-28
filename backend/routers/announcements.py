@@ -4,14 +4,15 @@ from schemas.announcements import AnnouncementCreate, AnnouncementUpdate, Announ
 from auth.dependencies import get_current_user, get_user_role
 from auth.guards import require_teacher_or_admin, require_authenticated
 from config import get_supabase
+from utils.db import fetch_one
 
 router = APIRouter(prefix="/announcements", tags=["announcements"])
 
 
 def _get_teacher_id(uid: str):
     supabase = get_supabase()
-    res = supabase.table("teachers").select("id").eq("user_id", uid).maybe_single().execute()
-    return res.data["id"] if res.data else None
+    row = fetch_one(supabase.table("teachers").select("id").eq("user_id", uid))
+    return row["id"] if row else None
 
 
 @router.get("", response_model=List[AnnouncementResponse])

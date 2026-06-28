@@ -3,14 +3,15 @@ from typing import List, Optional
 from schemas.assignments import AssignmentCreate, AssignmentUpdate, AssignmentResponse
 from auth.guards import require_teacher_or_admin, require_authenticated
 from config import get_supabase
+from utils.db import fetch_one
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
 
 
 def _get_teacher_id(uid: str):
     supabase = get_supabase()
-    res = supabase.table("teachers").select("id").eq("user_id", uid).maybe_single().execute()
-    return res.data["id"] if res.data else None
+    row = fetch_one(supabase.table("teachers").select("id").eq("user_id", uid))
+    return row["id"] if row else None
 
 
 @router.get("", response_model=List[AssignmentResponse])

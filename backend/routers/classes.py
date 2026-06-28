@@ -6,6 +6,7 @@ from schemas.students import StudentResponse
 from auth.dependencies import get_current_user, get_user_role
 from auth.guards import require_admin, require_authenticated
 from config import get_supabase
+from utils.db import fetch_one
 
 router = APIRouter(prefix="/classes", tags=["classes"])
 
@@ -24,19 +25,25 @@ def _flatten_class(row: dict) -> dict:
     else:
         result["teacher_name"] = None
     result.pop("teachers", None)
+
+    # student_classes(count) → student_count
+    sc = result.get("student_classes")
+    if isinstance(sc, list) and sc:
+        result["student_count"] = sc[0].get("count", 0)
+    else:
+        result["student_count"] = 0
+    result.pop("student_classes", None)
     return result
 
 
 def _get_teacher_row(uid: str):
     supabase = get_supabase()
-    res = supabase.table("teachers").select("id").eq("user_id", uid).maybe_single().execute()
-    return res.data
+    return fetch_one(supabase.table("teachers").select("id").eq("user_id", uid))
 
 
 def _get_student_row(uid: str):
     supabase = get_supabase()
-    res = supabase.table("students").select("id").eq("user_id", uid).maybe_single().execute()
-    return res.data
+    return fetch_one(supabase.table("students").select("id").eq("user_id", uid))
 
 
 # ── My classes (student/teacher) ──────────────────────────────────────────────
@@ -59,7 +66,7 @@ def get_my_classes(user=Depends(require_authenticated), role: str = Depends(get_
             return []
         res = (
             supabase.table("classes")
-            .select("*, subjects(subject_name), teachers(full_name)")
+            .select("*, subjects(subject_name), teachers(full_name), student_classes(count)")
             .in_("id", class_ids)
             .execute()
         )
@@ -71,14 +78,14 @@ def get_my_classes(user=Depends(require_authenticated), role: str = Depends(get_
             return []
         res = (
             supabase.table("classes")
-            .select("*, subjects(subject_name), teachers(full_name)")
+            .select("*, subjects(subject_name), teachers(full_name), student_classes(count)")
             .eq("teacher_id", teacher["id"])
             .execute()
         )
         return [_flatten_class(r) for r in res.data]
 
     # Admin gets all
-    res = supabase.table("classes").select("*, subjects(subject_name), teachers(full_name)").execute()
+    res = supabase.table("classes").select("*, subjects(subject_name), teachers(full_name), student_classes(count)").execute()
     return [_flatten_class(r) for r in res.data]
 
 
@@ -91,29 +98,23 @@ def join_class(body: StudentClassJoin, user=Depends(require_authenticated)):
     if not student:
         raise HTTPException(status_code=403, detail="Only students can join classes")
 
-    cls_res = (
-        supabase.table("classes")
-        .select("id")
-        .eq("join_code", body.join_code)
-        .maybe_single()
-        .execute()
+    cls_row = fetch_one(
+        supabase.table("classes").select("id").eq("join_code", body.join_code)
     )
-    if not cls_res.data:
+    if not cls_row:
         raise HTTPException(status_code=404, detail="Invalid join code")
 
-    class_id = cls_res.data["id"]
+    class_id = cls_row["id"]
     student_id = student["id"]
 
     # Check for existing enrollment
-    existing = (
+    existing = fetch_one(
         supabase.table("student_classes")
         .select("id")
         .eq("student_id", student_id)
         .eq("class_id", class_id)
-        .maybe_single()
-        .execute()
     )
-    if existing.data:
+    if existing:
         raise HTTPException(status_code=409, detail="Already enrolled in this class")
 
     res = (
@@ -150,7 +151,7 @@ def list_classes(user=Depends(require_admin)):
     supabase = get_supabase()
     res = (
         supabase.table("classes")
-        .select("*, subjects(subject_name), teachers(full_name)")
+        .select("*, subjects(subject_name), teachers(full_name), student_classes(count)")
         .execute()
     )
     return [_flatten_class(r) for r in res.data]
@@ -168,14 +169,12 @@ def create_class(body: ClassCreate, user=Depends(require_admin)):
         raise HTTPException(status_code=400, detail="Failed to create class")
     # Re-fetch with joins
     created_id = res.data[0]["id"]
-    full = (
+    full = fetch_one(
         supabase.table("classes")
-        .select("*, subjects(subject_name), teachers(full_name)")
+        .select("*, subjects(subject_name), teachers(full_name), student_classes(count)")
         .eq("id", created_id)
-        .maybe_single()
-        .execute()
     )
-    return _flatten_class(full.data)
+    return _flatten_class(full)
 
 
 @router.put("/{class_id}", response_model=ClassResponse)
@@ -190,14 +189,12 @@ def update_class(class_id: str, body: ClassUpdate, user=Depends(require_admin)):
     res = supabase.table("classes").update(update_data).eq("id", class_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Class not found")
-    full = (
+    full = fetch_one(
         supabase.table("classes")
-        .select("*, subjects(subject_name), teachers(full_name)")
+        .select("*, subjects(subject_name), teachers(full_name), student_classes(count)")
         .eq("id", class_id)
-        .maybe_single()
-        .execute()
     )
-    return _flatten_class(full.data)
+    return _flatten_class(full)
 
 
 @router.delete("/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -225,15 +222,13 @@ def list_class_students(class_id: str, user=Depends(require_admin)):
 @router.post("/{class_id}/enroll", response_model=StudentClassResponse, status_code=status.HTTP_201_CREATED)
 def admin_enroll(class_id: str, body: StudentClassCreate, user=Depends(require_admin)):
     supabase = get_supabase()
-    existing = (
+    existing = fetch_one(
         supabase.table("student_classes")
         .select("id")
         .eq("student_id", str(body.student_id))
         .eq("class_id", class_id)
-        .maybe_single()
-        .execute()
     )
-    if existing.data:
+    if existing:
         raise HTTPException(status_code=409, detail="Student already enrolled")
     res = (
         supabase.table("student_classes")

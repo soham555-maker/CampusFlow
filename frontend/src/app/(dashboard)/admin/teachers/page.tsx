@@ -15,8 +15,9 @@ import FilterDropdown from "@/components/ui/FilterDropdown";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import StatCard from "@/components/ui/StatCard";
 import EmptyState from "@/components/ui/EmptyState";
-import { useToast } from "@/store/toastStore";
-import { mockTeachers, type Teacher } from "@/lib/mockData";
+import { TableSkeleton } from "@/components/ui/SkeletonLoader";
+import { useTeachers, useTeacherMutations } from "@/lib/api/hooks";
+import type { Teacher } from "@/lib/api/types";
 
 const schema = z.object({
   full_name: z.string().min(2, "Name must be at least 2 characters"),
@@ -42,15 +43,14 @@ const designationOptions = [
 ];
 
 export default function TeachersPage() {
-  const toast = useToast();
-  const [teachers, setTeachers] = useState<Teacher[]>(mockTeachers);
+  const { data: teachers = [], isLoading } = useTeachers();
+  const { create, update, remove } = useTeacherMutations();
   const [search, setSearch] = useState("");
   const [filterDept, setFilterDept] = useState("");
 
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Teacher | null>(null);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } =
@@ -63,7 +63,7 @@ export default function TeachersPage() {
         !search ||
         t.full_name.toLowerCase().includes(q) ||
         t.email.toLowerCase().includes(q) ||
-        t.department.toLowerCase().includes(q);
+        (t.department ?? "").toLowerCase().includes(q);
       const matchDept = !filterDept || t.department === filterDept;
       return matchSearch && matchDept;
     });
@@ -104,55 +104,43 @@ export default function TeachersPage() {
     setSelected(teacher);
     setValue("full_name", teacher.full_name);
     setValue("email", teacher.email);
-    setValue("department", teacher.department);
-    setValue("designation", teacher.designation);
+    setValue("department", teacher.department ?? "");
+    setValue("designation", teacher.designation ?? "");
     setEditOpen(true);
   }
 
   function onAdd(data: FormData) {
-    setSaving(true);
-    setTimeout(() => {
-      const newTeacher: Teacher = {
-        id: `tch-${Date.now()}`,
-        user_id: null,
+    create.mutate(
+      {
         full_name: data.full_name,
         email: data.email,
         department: data.department,
         designation: data.designation,
-        created_at: new Date().toISOString(),
-      };
-      setTeachers((prev) => [newTeacher, ...prev]);
-      setAddOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Teacher added", `${data.full_name} has been added.`);
-    }, 600);
+      },
+      { onSuccess: () => { setAddOpen(false); reset(); } }
+    );
   }
 
   function onEdit(data: FormData) {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setTeachers((prev) =>
-        prev.map((t) => (t.id === selected.id ? { ...t, ...data } : t))
-      );
-      setEditOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Teacher updated", `${data.full_name} has been updated.`);
-    }, 600);
+    update.mutate(
+      {
+        id: selected.id,
+        body: {
+          full_name: data.full_name,
+          department: data.department,
+          designation: data.designation,
+        },
+      },
+      { onSuccess: () => { setEditOpen(false); reset(); } }
+    );
   }
 
   function onDelete() {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setTeachers((prev) => prev.filter((t) => t.id !== selected.id));
-      setDeleteOpen(false);
-      setSaving(false);
-      toast.success("Teacher removed");
-      setSelected(null);
-    }, 500);
+    remove.mutate(selected.id, {
+      onSuccess: () => { setDeleteOpen(false); setSelected(null); },
+    });
   }
 
   const FormFields = () => (
@@ -199,7 +187,7 @@ export default function TeachersPage() {
       <div className="grid grid-cols-3 gap-4">
         <StatCard label="Total Teachers" value={teachers.length} icon={GraduationCap} color="cyan" delay={0.05} />
         <StatCard label="Departments" value={new Set(teachers.map(t => t.department)).size} icon={GraduationCap} color="purple" delay={0.1} />
-        <StatCard label="Professors" value={teachers.filter(t => t.designation.includes("Professor")).length} icon={GraduationCap} color="blue" delay={0.15} />
+        <StatCard label="Professors" value={teachers.filter(t => (t.designation ?? "").includes("Professor")).length} icon={GraduationCap} color="blue" delay={0.15} />
       </div>
 
       <div className="flex items-center gap-3">
@@ -207,7 +195,9 @@ export default function TeachersPage() {
         <FilterDropdown value={filterDept} onChange={setFilterDept} options={departmentOptions} placeholder="All Departments" className="w-48" />
       </div>
 
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <TableSkeleton rows={5} />
+      ) : filtered.length === 0 ? (
         <div className="glass-panel rounded-xl">
           <EmptyState
             icon={GraduationCap}
@@ -225,7 +215,7 @@ export default function TeachersPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Add Teacher</Button>
+            <Button type="submit" loading={create.isPending} className="flex-1">Add Teacher</Button>
           </div>
         </form>
       </Modal>
@@ -235,7 +225,7 @@ export default function TeachersPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Save Changes</Button>
+            <Button type="submit" loading={update.isPending} className="flex-1">Save Changes</Button>
           </div>
         </form>
       </Modal>
@@ -247,7 +237,7 @@ export default function TeachersPage() {
         title="Remove Teacher"
         description={`Are you sure you want to remove ${selected?.full_name}? This cannot be undone.`}
         confirmLabel="Remove Teacher"
-        loading={saving}
+        loading={remove.isPending}
       />
     </div>
   );

@@ -3,6 +3,7 @@ from typing import List
 from schemas.teachers import TeacherCreate, TeacherUpdate, TeacherResponse
 from auth.guards import require_admin
 from config import get_supabase
+from utils.db import fetch_one
 
 router = APIRouter(prefix="/teachers", tags=["teachers"])
 
@@ -17,10 +18,10 @@ def list_teachers(user=Depends(require_admin)):
 @router.get("/{teacher_id}", response_model=TeacherResponse)
 def get_teacher(teacher_id: str, user=Depends(require_admin)):
     supabase = get_supabase()
-    res = supabase.table("teachers").select("*").eq("id", teacher_id).maybe_single().execute()
-    if not res.data:
+    row = fetch_one(supabase.table("teachers").select("*").eq("id", teacher_id))
+    if not row:
         raise HTTPException(status_code=404, detail="Teacher not found")
-    return res.data
+    return row
 
 
 @router.post("", response_model=TeacherResponse, status_code=status.HTTP_201_CREATED)

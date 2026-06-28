@@ -11,6 +11,7 @@ from auth.dependencies import get_current_user, get_user_role
 from auth.guards import require_authenticated, require_teacher_or_admin
 from schemas.classrooms import ClassroomResponse
 from utils.conflict import check_timetable_conflict
+from utils.db import fetch_one
 from config import get_supabase
 
 router = APIRouter(prefix="/timetable", tags=["timetable"])
@@ -20,27 +21,20 @@ router = APIRouter(prefix="/timetable", tags=["timetable"])
 
 def _get_teacher_row(uid: str):
     supabase = get_supabase()
-    res = supabase.table("teachers").select("id").eq("user_id", uid).maybe_single().execute()
-    return res.data
+    return fetch_one(supabase.table("teachers").select("id").eq("user_id", uid))
 
 
 def _get_student_row(uid: str):
     supabase = get_supabase()
-    res = supabase.table("students").select("id").eq("user_id", uid).maybe_single().execute()
-    return res.data
+    return fetch_one(supabase.table("students").select("id").eq("user_id", uid))
 
 
 def _resolve_teacher_id_for_slot(class_id: str) -> Optional[str]:
     """Fetch the teacher_id from the parent class (needed for conflict checks before insert)."""
     supabase = get_supabase()
-    res = (
-        supabase.table("classes")
-        .select("teacher_id, term_id")
-        .eq("id", class_id)
-        .maybe_single()
-        .execute()
+    return fetch_one(
+        supabase.table("classes").select("teacher_id, term_id").eq("id", class_id)
     )
-    return res.data if res.data else None
 
 
 def _handle_db_conflict_error(exc: Exception) -> HTTPException:
@@ -316,16 +310,11 @@ def update_slot(
     supabase = get_supabase()
 
     # Fetch existing slot
-    existing_res = (
-        supabase.table("timetable_slots")
-        .select("*")
-        .eq("id", slot_id)
-        .maybe_single()
-        .execute()
+    existing = fetch_one(
+        supabase.table("timetable_slots").select("*").eq("id", slot_id)
     )
-    if not existing_res.data:
+    if not existing:
         raise HTTPException(status_code=404, detail="Slot not found")
-    existing = existing_res.data
 
     # Teachers can only modify their own slots
     if role == "teacher":
@@ -381,16 +370,12 @@ def delete_slot(
 
     if role == "teacher":
         teacher_row = _get_teacher_row(user.id)
-        existing_res = (
-            supabase.table("timetable_slots")
-            .select("teacher_id")
-            .eq("id", slot_id)
-            .maybe_single()
-            .execute()
+        existing = fetch_one(
+            supabase.table("timetable_slots").select("teacher_id").eq("id", slot_id)
         )
-        if not existing_res.data:
+        if not existing:
             raise HTTPException(status_code=404, detail="Slot not found")
-        if not teacher_row or teacher_row["id"] != existing_res.data["teacher_id"]:
+        if not teacher_row or teacher_row["id"] != existing["teacher_id"]:
             raise HTTPException(status_code=403, detail="You can only delete your own slots")
 
     res = supabase.table("timetable_slots").delete().eq("id", slot_id).execute()

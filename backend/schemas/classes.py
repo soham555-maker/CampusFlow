@@ -31,6 +31,7 @@ class ClassResponse(BaseModel):
     # Joined display fields (populated via select with joins)
     subject_name: Optional[str] = None
     teacher_name: Optional[str] = None
+    student_count: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

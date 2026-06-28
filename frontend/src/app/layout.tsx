@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { clashDisplay, satoshi } from "@/fonts/fonts";
 import ToastContainer from "@/components/ui/Toast";
+import QueryProvider from "@/components/providers/QueryProvider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -23,7 +24,7 @@ export default function RootLayout({
       className={`${clashDisplay.variable} ${satoshi.variable} ${inter.variable} motion-safe:scroll-smooth`}
     >
       <body className={inter.className}>
-        {children}
+        <QueryProvider>{children}</QueryProvider>
         <ToastContainer />
       </body>
     </html>

@@ -18,15 +18,16 @@ import Badge from "@/components/ui/Badge";
 import FilterDropdown from "@/components/ui/FilterDropdown";
 import GlassCard from "@/components/ui/GlassCard";
 import Tabs from "@/components/ui/Tabs";
-import { useToast } from "@/store/toastStore";
+import { CardSkeleton } from "@/components/ui/SkeletonLoader";
 import {
-  mockTimetableSlots,
-  mockTeachers,
-  mockClassrooms,
-  mockClasses,
-  mockTerms,
-  type TimetableSlot,
-} from "@/lib/mockData";
+  useRole,
+  useMyTimetable,
+  useMyClasses,
+  useClassrooms,
+  useFreeRooms,
+  useSlotMutations,
+} from "@/lib/api/hooks";
+import type { TimetableSlot } from "@/lib/api/types";
 import { cn } from "@/utils/cn";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
@@ -39,7 +40,6 @@ function timeToMinutes(t: string) {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
 }
-
 function minutesFromStart(t: string) {
   return timeToMinutes(t) - HOUR_START * 60;
 }
@@ -58,21 +58,15 @@ const tabConfig = [
   { id: "teachers", label: "Teacher Availability", icon: GraduationCap },
 ];
 
-const teacherOptions = mockTeachers.map((t) => ({ label: t.full_name, value: t.id }));
-const roomOptions = mockClassrooms.map((r) => ({ label: `${r.room_number} — ${r.building}`, value: r.id }));
-const classOptions = mockClasses.map((c) => ({ label: c.subject_name, value: c.id }));
-const termOptions = mockTerms.map((t) => ({ label: t.name, value: t.id }));
 const dayOptions = DAYS.map((d) => ({ label: d, value: d }));
 
 function SlotCard({
   slot,
   idx,
-  onEdit,
   onDelete,
 }: {
   slot: TimetableSlot;
   idx: number;
-  onEdit?: (s: TimetableSlot) => void;
   onDelete?: (s: TimetableSlot) => void;
 }) {
   const topMinutes = minutesFromStart(slot.start_time);
@@ -90,7 +84,6 @@ function SlotCard({
       )}
       style={{ top: `${top}px`, height: `${height}px` }}
     >
-      {/* Grain overlay for matte effect */}
       <div
         className="absolute inset-0 rounded-lg opacity-[0.07] mix-blend-overlay pointer-events-none"
         style={{
@@ -103,31 +96,17 @@ function SlotCard({
         <p className={cn("text-[11px] font-semibold truncate leading-tight", p.text)}>
           {slot.subject_name}
         </p>
-        {height > 36 && (
-          <p className="text-[10px] text-white/50 truncate mt-0.5">{slot.room_number}</p>
-        )}
-        {height > 52 && (
-          <p className="text-[10px] text-white/40 truncate">{slot.teacher_name}</p>
-        )}
+        {height > 36 && <p className="text-[10px] text-white/50 truncate mt-0.5">{slot.room_number}</p>}
+        {height > 52 && <p className="text-[10px] text-white/40 truncate">{slot.teacher_name}</p>}
       </div>
-      {(onEdit || onDelete) && (
+      {onDelete && (
         <div className="absolute top-1 right-1 hidden group-hover:flex gap-0.5">
-          {onEdit && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(slot); }}
-              className="w-5 h-5 rounded bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
-            >
-              <span className="text-[9px] text-white">✎</span>
-            </button>
-          )}
-          {onDelete && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(slot); }}
-              className="w-5 h-5 rounded bg-red-500/20 flex items-center justify-center hover:bg-red-500/30 transition-colors"
-            >
-              <X size={9} className="text-red-400" />
-            </button>
-          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(slot); }}
+            className="w-5 h-5 rounded bg-red-500/20 flex items-center justify-center hover:bg-red-500/30 transition-colors"
+          >
+            <X size={9} className="text-red-400" />
+          </button>
         </div>
       )}
     </div>
@@ -136,15 +115,13 @@ function SlotCard({
 
 function TimetableGrid({
   slots,
-  role,
+  canEdit,
   onAddSlot,
-  onEditSlot,
   onDeleteSlot,
 }: {
   slots: TimetableSlot[];
-  role: "admin" | "teacher" | "student";
+  canEdit: boolean;
   onAddSlot?: (day: string, hour: number) => void;
-  onEditSlot?: (s: TimetableSlot) => void;
   onDeleteSlot?: (s: TimetableSlot) => void;
 }) {
   const slotsByDay = useMemo(() => {
@@ -159,12 +136,9 @@ function TimetableGrid({
     return `${h.toString().padStart(2, "0")}:00`;
   });
 
-  const canEdit = role === "admin" || role === "teacher";
-
   return (
     <div className="glass-panel rounded-2xl overflow-auto">
       <div className="flex min-w-[760px]">
-        {/* Time column */}
         <div className="w-14 shrink-0 pt-11 border-r border-white/[0.04]">
           {hourLabels.map((label) => (
             <div
@@ -177,7 +151,6 @@ function TimetableGrid({
           ))}
         </div>
 
-        {/* Day columns */}
         {DAYS.map((day) => (
           <div key={day} className="flex-1 min-w-0 border-r border-white/[0.04] last:border-0">
             <div className="h-11 flex items-center justify-center border-b border-white/[0.04]">
@@ -186,23 +159,12 @@ function TimetableGrid({
               </span>
             </div>
             <div className="relative" style={{ height: `${TOTAL_HOURS * SLOT_HEIGHT}px` }}>
-              {/* Hour lines */}
               {Array.from({ length: TOTAL_HOURS }).map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute left-0 right-0 border-t border-white/[0.025]"
-                  style={{ top: `${i * SLOT_HEIGHT}px` }}
-                />
+                <div key={i} className="absolute left-0 right-0 border-t border-white/[0.025]" style={{ top: `${i * SLOT_HEIGHT}px` }} />
               ))}
-              {/* Half-hour lines */}
               {Array.from({ length: TOTAL_HOURS }).map((_, i) => (
-                <div
-                  key={`h-${i}`}
-                  className="absolute left-0 right-0 border-t border-white/[0.012]"
-                  style={{ top: `${i * SLOT_HEIGHT + SLOT_HEIGHT / 2}px` }}
-                />
+                <div key={`h-${i}`} className="absolute left-0 right-0 border-t border-white/[0.012]" style={{ top: `${i * SLOT_HEIGHT + SLOT_HEIGHT / 2}px` }} />
               ))}
-              {/* Click zones for adding */}
               {canEdit &&
                 Array.from({ length: TOTAL_HOURS }).map((_, i) => (
                   <div
@@ -216,15 +178,8 @@ function TimetableGrid({
                     </div>
                   </div>
                 ))}
-              {/* Slots */}
               {slotsByDay[day].map((slot, idx) => (
-                <SlotCard
-                  key={slot.id}
-                  slot={slot}
-                  idx={idx}
-                  onEdit={canEdit ? onEditSlot : undefined}
-                  onDelete={canEdit ? onDeleteSlot : undefined}
-                />
+                <SlotCard key={slot.id} slot={slot} idx={idx} onDelete={canEdit ? onDeleteSlot : undefined} />
               ))}
             </div>
           </div>
@@ -234,28 +189,20 @@ function TimetableGrid({
   );
 }
 
-function FreeRoomsView() {
+function FreeRoomsView({ termId }: { termId: string | null }) {
   const [filterDay, setFilterDay] = useState("Monday");
   const [filterFrom, setFilterFrom] = useState("09:00");
   const [filterTo, setFilterTo] = useState("10:00");
 
-  const busyRoomIds = useMemo(() => {
-    return new Set(
-      mockTimetableSlots
-        .filter((s) => {
-          if (s.day !== filterDay) return false;
-          const slotStart = timeToMinutes(s.start_time);
-          const slotEnd = timeToMinutes(s.end_time);
-          const qStart = timeToMinutes(filterFrom);
-          const qEnd = timeToMinutes(filterTo);
-          return Math.max(slotStart, qStart) < Math.min(slotEnd, qEnd);
-        })
-        .map((s) => s.classroom_id)
-    );
-  }, [filterDay, filterFrom, filterTo]);
+  const params =
+    termId && filterFrom < filterTo
+      ? { day: filterDay, start_time: filterFrom, end_time: filterTo, term_id: termId }
+      : null;
+  const { data: freeRooms = [], isLoading } = useFreeRooms(params);
+  const { data: allRooms = [] } = useClassrooms();
 
-  const freeRooms = mockClassrooms.filter((r) => !busyRoomIds.has(r.id));
-  const busyRooms = mockClassrooms.filter((r) => busyRoomIds.has(r.id));
+  const freeIds = new Set(freeRooms.map((r) => r.id));
+  const busyRooms = allRooms.filter((r) => !freeIds.has(r.id));
 
   return (
     <div className="space-y-5">
@@ -266,100 +213,95 @@ function FreeRoomsView() {
         </div>
         <div>
           <p className="text-xs text-gray-400 mb-1.5">From</p>
-          <input
-            type="time"
-            value={filterFrom}
-            onChange={(e) => setFilterFrom(e.target.value)}
-            className="input-glass h-9 text-sm w-28"
-          />
+          <input type="time" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} className="input-glass h-9 text-sm w-28" />
         </div>
         <div>
           <p className="text-xs text-gray-400 mb-1.5">To</p>
-          <input
-            type="time"
-            value={filterTo}
-            onChange={(e) => setFilterTo(e.target.value)}
-            className="input-glass h-9 text-sm w-28"
-          />
+          <input type="time" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} className="input-glass h-9 text-sm w-28" />
         </div>
       </GlassCard>
 
-      <div className="grid grid-cols-2 gap-5">
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <CheckCircle size={14} className="text-emerald-400" />
-            <h3 className="text-sm font-medium text-white">Free Rooms ({freeRooms.length})</h3>
+      {!termId ? (
+        <p className="text-sm text-gray-500 text-center py-6">No active term detected from your schedule.</p>
+      ) : isLoading ? (
+        <CardSkeleton />
+      ) : (
+        <div className="grid grid-cols-2 gap-5">
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <CheckCircle size={14} className="text-emerald-400" />
+              <h3 className="text-sm font-medium text-white">Free Rooms ({freeRooms.length})</h3>
+            </div>
+            <div className="space-y-2">
+              {freeRooms.map((r) => (
+                <motion.div
+                  key={r.id}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="glass-panel rounded-xl px-4 py-3 flex items-center justify-between"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-white">{r.room_number}</p>
+                    <p className="text-xs text-gray-400">{r.building} · Floor {r.floor ?? "—"}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="default">Cap {r.capacity ?? "—"}</Badge>
+                    <Badge variant="success">{r.type}</Badge>
+                  </div>
+                </motion.div>
+              ))}
+              {freeRooms.length === 0 && <p className="text-sm text-gray-500">No rooms free in this window.</p>}
+            </div>
           </div>
-          <div className="space-y-2">
-            {freeRooms.map((r) => (
-              <motion.div
-                key={r.id}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="glass-panel rounded-xl px-4 py-3 flex items-center justify-between"
-              >
-                <div>
-                  <p className="text-sm font-medium text-white">{r.room_number}</p>
-                  <p className="text-xs text-gray-400">{r.building} · Floor {r.floor}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="default">Cap {r.capacity}</Badge>
-                  <Badge variant="success">{r.type}</Badge>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
 
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <X size={14} className="text-red-400" />
-            <h3 className="text-sm font-medium text-white">Occupied Rooms ({busyRooms.length})</h3>
-          </div>
-          <div className="space-y-2">
-            {busyRooms.map((r) => {
-              const slot = mockTimetableSlots.find((s) => s.classroom_id === r.id && s.day === filterDay);
-              return (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <X size={14} className="text-red-400" />
+              <h3 className="text-sm font-medium text-white">Occupied Rooms ({busyRooms.length})</h3>
+            </div>
+            <div className="space-y-2">
+              {busyRooms.map((r) => (
                 <div key={r.id} className="glass-panel rounded-xl px-4 py-3 flex items-center justify-between opacity-50">
                   <div>
                     <p className="text-sm font-medium text-white">{r.room_number}</p>
-                    <p className="text-xs text-gray-400">{slot?.subject_name ?? r.building}</p>
+                    <p className="text-xs text-gray-400">{r.building}</p>
                   </div>
                   <Badge variant="error">Occupied</Badge>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-function TeacherAvailabilityView() {
+function TeacherAvailabilityView({ slots }: { slots: TimetableSlot[] }) {
   const [filterDay, setFilterDay] = useState("Monday");
 
-  const teacherSchedule = useMemo(() => {
-    return mockTeachers.map((t) => {
-      const daySlots = mockTimetableSlots.filter(
-        (s) => s.teacher_id === t.id && s.day === filterDay
-      );
+  const teachers = useMemo(() => {
+    const map = new Map<string, string>();
+    slots.forEach((s) => map.set(s.teacher_id, s.teacher_name));
+    return Array.from(map, ([id, name]) => ({ id, name }));
+  }, [slots]);
+
+  const schedule = useMemo(() => {
+    return teachers.map((t) => {
+      const daySlots = slots
+        .filter((s) => s.teacher_id === t.id && s.day === filterDay)
+        .sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
       const freeWindows: string[] = [];
       let prev = HOUR_START;
-      const sorted = [...daySlots].sort(
-        (a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
-      );
-      for (const slot of sorted) {
+      for (const slot of daySlots) {
         const start = Math.floor(timeToMinutes(slot.start_time) / 60);
-        if (start > prev) {
-          freeWindows.push(`${prev}:00–${start}:00`);
-        }
+        if (start > prev) freeWindows.push(`${prev}:00–${start}:00`);
         prev = Math.ceil(timeToMinutes(slot.end_time) / 60);
       }
       if (prev < HOUR_END) freeWindows.push(`${prev}:00–${HOUR_END}:00`);
       return { teacher: t, slots: daySlots, freeWindows };
     });
-  }, [filterDay]);
+  }, [teachers, slots, filterDay]);
 
   return (
     <div className="space-y-5">
@@ -370,74 +312,63 @@ function TeacherAvailabilityView() {
         </div>
       </GlassCard>
 
-      <div className="space-y-3">
-        {teacherSchedule.map(({ teacher, slots, freeWindows }) => (
-          <GlassCard key={teacher.id} className="p-4 space-y-3">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-medium text-white">{teacher.full_name}</p>
-                <p className="text-xs text-gray-400">{teacher.department} · {teacher.designation}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={slots.length === 0 ? "success" : "warning"}>
-                  {slots.length} class{slots.length !== 1 ? "es" : ""}
+      {schedule.length === 0 ? (
+        <p className="text-sm text-gray-500 text-center py-6">No scheduled teachers to show.</p>
+      ) : (
+        <div className="space-y-3">
+          {schedule.map(({ teacher, slots: daySlots, freeWindows }) => (
+            <GlassCard key={teacher.id} className="p-4 space-y-3">
+              <div className="flex items-start justify-between">
+                <p className="text-sm font-medium text-white">{teacher.name}</p>
+                <Badge variant={daySlots.length === 0 ? "success" : "warning"}>
+                  {daySlots.length} class{daySlots.length !== 1 ? "es" : ""}
                 </Badge>
               </div>
-            </div>
-
-            {slots.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {slots.map((s) => (
-                  <span
-                    key={s.id}
-                    className="text-xs bg-purple-500/10 border border-purple-500/20 text-purple-300 rounded px-2 py-0.5"
-                  >
-                    {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)} · {s.subject_name}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {freeWindows.length > 0 && (
-              <div>
-                <p className="text-[10px] text-gray-500 mb-1.5 uppercase tracking-wide">Free windows</p>
+              {daySlots.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {freeWindows.map((w) => (
-                    <span
-                      key={w}
-                      className="text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded px-2 py-0.5"
-                    >
-                      {w}
+                  {daySlots.map((s) => (
+                    <span key={s.id} className="text-xs bg-purple-500/10 border border-purple-500/20 text-purple-300 rounded px-2 py-0.5">
+                      {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)} · {s.subject_name}
                     </span>
                   ))}
                 </div>
-              </div>
-            )}
-          </GlassCard>
-        ))}
-      </div>
+              )}
+              {freeWindows.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-500 mb-1.5 uppercase tracking-wide">Free windows</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {freeWindows.map((w) => (
+                      <span key={w} className="text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded px-2 py-0.5">
+                        {w}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </GlassCard>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 export default function TimetablePage() {
-  const toast = useToast();
+  const { role } = useRole();
+  const canEdit = role === "admin" || role === "teacher";
+
+  const { data: slots = [], isLoading } = useMyTimetable();
+  const { data: myClasses = [] } = useMyClasses();
+  const { data: rooms = [] } = useClassrooms();
+  const { create: createSlot, remove: removeSlot } = useSlotMutations();
+
   const [activeTab, setActiveTab] = useState("grid");
   const [filterTeacher, setFilterTeacher] = useState("");
   const [filterRoom, setFilterRoom] = useState("");
   const [filterClass, setFilterClass] = useState("");
-  const [filterTerm, setFilterTerm] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
-  // Mock role (in real app this comes from auth context)
-  const role = "admin" as "admin" | "teacher" | "student";
-
   const [addOpen, setAddOpen] = useState(false);
-  const [addDay, setAddDay] = useState("Monday");
-  const [addHour, setAddHour] = useState(9);
-  const [saving, setSaving] = useState(false);
-  const [slots, setSlots] = useState<TimetableSlot[]>(mockTimetableSlots);
-
   const [addForm, setAddForm] = useState({
     class_id: "",
     classroom_id: "",
@@ -446,21 +377,30 @@ export default function TimetablePage() {
     end_time: "10:00",
   });
 
+  // Active term derived from the slots the user can see (no admin-only /terms call).
+  const activeTermId = slots[0]?.term_id ?? null;
+
+  // Filter options derived role-safely from visible data.
+  const teacherOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    slots.forEach((s) => m.set(s.teacher_id, s.teacher_name));
+    return Array.from(m, ([value, label]) => ({ value, label }));
+  }, [slots]);
+  const roomOptions = rooms.map((r) => ({ label: `${r.room_number} — ${r.building ?? ""}`, value: r.id }));
+  const classOptions = myClasses.map((c) => ({ label: c.subject_name, value: c.id }));
+
   const filtered = useMemo(() => {
     return slots.filter((s) => {
       const matchTeacher = !filterTeacher || s.teacher_id === filterTeacher;
       const matchRoom = !filterRoom || s.classroom_id === filterRoom;
       const matchClass = !filterClass || s.class_id === filterClass;
-      const matchTerm = !filterTerm || s.term_id === filterTerm;
-      return matchTeacher && matchRoom && matchClass && matchTerm;
+      return matchTeacher && matchRoom && matchClass;
     });
-  }, [slots, filterTeacher, filterRoom, filterClass, filterTerm]);
+  }, [slots, filterTeacher, filterRoom, filterClass]);
 
-  const activeFiltersCount = [filterTeacher, filterRoom, filterClass, filterTerm].filter(Boolean).length;
+  const activeFiltersCount = [filterTeacher, filterRoom, filterClass].filter(Boolean).length;
 
   function handleAddSlot(day: string, hour: number) {
-    setAddDay(day);
-    setAddHour(hour);
     setAddForm((f) => ({
       ...f,
       day,
@@ -471,65 +411,41 @@ export default function TimetablePage() {
   }
 
   function handleSaveSlot() {
-    if (!addForm.class_id || !addForm.classroom_id) {
-      toast.error("Missing fields", "Please fill in all required fields.");
-      return;
-    }
-    setSaving(true);
-    const cls = mockClasses.find((c) => c.id === addForm.class_id);
-    const room = mockClassrooms.find((r) => r.id === addForm.classroom_id);
-    setTimeout(() => {
-      const newSlot: TimetableSlot = {
-        id: `slot-${Date.now()}`,
+    if (!addForm.class_id || !addForm.classroom_id) return;
+    createSlot.mutate(
+      {
         class_id: addForm.class_id,
         classroom_id: addForm.classroom_id,
-        teacher_id: cls?.teacher_id ?? "tch-001",
-        term_id: cls?.term_id ?? "term-001",
         day: addForm.day,
-        start_time: `${addForm.start_time}:00`,
-        end_time: `${addForm.end_time}:00`,
-        subject_name: cls?.subject_name ?? "Class",
-        teacher_name: cls?.teacher_name ?? "Teacher",
-        room_number: room?.room_number ?? "Room",
-        building: room?.building ?? "",
-      };
-      setSlots((prev) => [...prev, newSlot]);
-      setAddOpen(false);
-      setSaving(false);
-      toast.success("Slot added", `${cls?.subject_name} on ${addForm.day}`);
-    }, 600);
+        start_time: addForm.start_time,
+        end_time: addForm.end_time,
+      },
+      { onSuccess: () => setAddOpen(false) }
+    );
   }
 
   function handleDeleteSlot(slot: TimetableSlot) {
-    setSlots((prev) => prev.filter((s) => s.id !== slot.id));
-    toast.success("Slot removed");
+    removeSlot.mutate(slot.id);
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between"
-      >
+      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white tracking-tight">Timetable</h1>
           <p className="text-gray-400 text-sm mt-0.5">
             Manage schedules, check room availability, and view teacher free windows
           </p>
         </div>
-        {role !== "student" && (
+        {canEdit && (
           <Button onClick={() => handleAddSlot("Monday", 9)}>
             <span className="flex items-center gap-2"><Plus size={15} /> Add Slot</span>
           </Button>
         )}
       </motion.div>
 
-      {/* Tabs */}
       <Tabs tabs={tabConfig} activeTab={activeTab} onChange={setActiveTab} />
 
-      {/* Grid view filters */}
       {activeTab === "grid" && (
         <div className="flex items-center gap-3">
           <button
@@ -551,7 +467,7 @@ export default function TimetablePage() {
           </button>
           {activeFiltersCount > 0 && (
             <button
-              onClick={() => { setFilterTeacher(""); setFilterRoom(""); setFilterClass(""); setFilterTerm(""); }}
+              onClick={() => { setFilterTeacher(""); setFilterRoom(""); setFilterClass(""); }}
               className="text-xs text-gray-400 hover:text-white transition-colors cursor-pointer"
             >
               Clear all
@@ -562,125 +478,90 @@ export default function TimetablePage() {
 
       <AnimatePresence>
         {activeTab === "grid" && showFilters && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-          >
-            <GlassCard className="grid grid-cols-4 gap-3">
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
+            <GlassCard className="grid grid-cols-3 gap-3">
               <FilterDropdown value={filterTeacher} onChange={setFilterTeacher} options={teacherOptions} placeholder="All Teachers" />
               <FilterDropdown value={filterRoom} onChange={setFilterRoom} options={roomOptions} placeholder="All Rooms" />
               <FilterDropdown value={filterClass} onChange={setFilterClass} options={classOptions} placeholder="All Classes" />
-              <FilterDropdown value={filterTerm} onChange={setFilterTerm} options={termOptions} placeholder="All Terms" />
             </GlassCard>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Tab content */}
       <AnimatePresence mode="wait">
         {activeTab === "grid" && (
           <motion.div key="grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <TimetableGrid
-              slots={filtered}
-              role={role}
-              onAddSlot={handleAddSlot}
-              onEditSlot={() => {}}
-              onDeleteSlot={handleDeleteSlot}
-            />
-            <p className="text-xs text-gray-600 mt-3 text-center">
-              {role !== "student" ? "Click any empty cell to add a slot. Hover a slot to edit or delete." : "Your weekly timetable."}
-            </p>
+            {isLoading ? (
+              <CardSkeleton />
+            ) : (
+              <>
+                <TimetableGrid slots={filtered} canEdit={canEdit} onAddSlot={handleAddSlot} onDeleteSlot={handleDeleteSlot} />
+                <p className="text-xs text-gray-600 mt-3 text-center">
+                  {canEdit ? "Click any empty cell to add a slot. Hover a slot to delete." : "Your weekly timetable."}
+                </p>
+              </>
+            )}
           </motion.div>
         )}
 
         {activeTab === "rooms" && (
           <motion.div key="rooms" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <FreeRoomsView />
+            <FreeRoomsView termId={activeTermId} />
           </motion.div>
         )}
 
         {activeTab === "teachers" && (
           <motion.div key="teachers" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <TeacherAvailabilityView />
+            <TeacherAvailabilityView slots={slots} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Add Slot Modal */}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Timetable Slot">
         <div className="space-y-4">
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Class / Subject</label>
-            <select
-              value={addForm.class_id}
-              onChange={(e) => setAddForm((f) => ({ ...f, class_id: e.target.value }))}
-              className="input-glass"
-            >
+            <select value={addForm.class_id} onChange={(e) => setAddForm((f) => ({ ...f, class_id: e.target.value }))} className="input-glass">
               <option value="">Select class…</option>
-              {mockClasses.map((c) => (
-                <option key={c.id} value={c.id} className="bg-[#0a0a0f]">
-                  {c.subject_name} — {c.teacher_name}
-                </option>
+              {myClasses.map((c) => (
+                <option key={c.id} value={c.id} className="bg-[#0a0a0f]">{c.subject_name} — {c.teacher_name}</option>
               ))}
             </select>
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Classroom</label>
-            <select
-              value={addForm.classroom_id}
-              onChange={(e) => setAddForm((f) => ({ ...f, classroom_id: e.target.value }))}
-              className="input-glass"
-            >
+            <select value={addForm.classroom_id} onChange={(e) => setAddForm((f) => ({ ...f, classroom_id: e.target.value }))} className="input-glass">
               <option value="">Select room…</option>
-              {mockClassrooms.map((r) => (
-                <option key={r.id} value={r.id} className="bg-[#0a0a0f]">
-                  {r.room_number} — {r.building} (Cap {r.capacity})
-                </option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id} className="bg-[#0a0a0f]">{r.room_number} — {r.building} (Cap {r.capacity ?? "—"})</option>
               ))}
             </select>
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Day</label>
-            <select
-              value={addForm.day}
-              onChange={(e) => setAddForm((f) => ({ ...f, day: e.target.value }))}
-              className="input-glass"
-            >
-              {DAYS.map((d) => (
-                <option key={d} value={d} className="bg-[#0a0a0f]">{d}</option>
-              ))}
+            <select value={addForm.day} onChange={(e) => setAddForm((f) => ({ ...f, day: e.target.value }))} className="input-glass">
+              {DAYS.map((d) => (<option key={d} value={d} className="bg-[#0a0a0f]">{d}</option>))}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">Start Time</label>
-              <input
-                type="time"
-                value={addForm.start_time}
-                onChange={(e) => setAddForm((f) => ({ ...f, start_time: e.target.value }))}
-                className="input-glass"
-              />
+              <input type="time" value={addForm.start_time} onChange={(e) => setAddForm((f) => ({ ...f, start_time: e.target.value }))} className="input-glass" />
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">End Time</label>
-              <input
-                type="time"
-                value={addForm.end_time}
-                onChange={(e) => setAddForm((f) => ({ ...f, end_time: e.target.value }))}
-                className="input-glass"
-              />
+              <input type="time" value={addForm.end_time} onChange={(e) => setAddForm((f) => ({ ...f, end_time: e.target.value }))} className="input-glass" />
             </div>
           </div>
           <div className="flex items-center gap-2 bg-amber-500/5 border border-amber-500/15 rounded-lg px-3 py-2">
             <Clock size={13} className="text-amber-400 shrink-0" />
             <p className="text-xs text-amber-300/80">
-              Conflict detection will run automatically when connected to the backend.
+              Conflicts (room or teacher double-booking) are checked automatically on save.
             </p>
           </div>
           <div className="flex gap-3 pt-1">
             <Button variant="ghost" onClick={() => setAddOpen(false)} className="flex-1">Cancel</Button>
-            <Button onClick={handleSaveSlot} loading={saving} className="flex-1">Save Slot</Button>
+            <Button onClick={handleSaveSlot} loading={createSlot.isPending} className="flex-1">Save Slot</Button>
           </div>
         </div>
       </Modal>
