@@ -15,15 +15,18 @@ import FilterDropdown from "@/components/ui/FilterDropdown";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import StatCard from "@/components/ui/StatCard";
 import EmptyState from "@/components/ui/EmptyState";
-import { useToast } from "@/store/toastStore";
+import { TableSkeleton } from "@/components/ui/SkeletonLoader";
 import {
-  mockClasses,
-  mockSubjects,
-  mockTeachers,
-  mockTerms,
-  mockStudents,
-  type Class,
-} from "@/lib/mockData";
+  useClasses,
+  useSubjects,
+  useTeachers,
+  useTerms,
+  useStudents,
+  useClassRoster,
+  useClassMutations,
+  useEnrollmentMutations,
+} from "@/lib/api/hooks";
+import type { Class } from "@/lib/api/types";
 
 const schema = z.object({
   subject_id: z.string().min(1, "Select a subject"),
@@ -35,11 +38,14 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-const divisionOptions = ["A", "B", "C"].map((d) => ({ label: `Division ${d}`, value: d }));
-
 export default function ClassesPage() {
-  const toast = useToast();
-  const [classes, setClasses] = useState<Class[]>(mockClasses);
+  const { data: classes = [], isLoading } = useClasses();
+  const { data: subjects = [] } = useSubjects();
+  const { data: teachers = [] } = useTeachers();
+  const { data: terms = [] } = useTerms();
+  const { data: students = [] } = useStudents();
+  const { create, update, remove } = useClassMutations();
+
   const [search, setSearch] = useState("");
   const [filterTerm, setFilterTerm] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -47,9 +53,14 @@ export default function ClassesPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [enrollOpen, setEnrollOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Class | null>(null);
   const [enrollStudentId, setEnrollStudentId] = useState("");
+
+  const { enroll } = useEnrollmentMutations(selected?.id ?? "");
+  const { data: roster = [], isLoading: rosterLoading } = useClassRoster(
+    expanded ?? "",
+    !!expanded
+  );
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } =
     useForm<FormData>({ resolver: zodResolver(schema) });
@@ -66,7 +77,8 @@ export default function ClassesPage() {
     });
   }, [classes, search, filterTerm]);
 
-  const termOptions = mockTerms.map((t) => ({ label: t.name, value: t.id }));
+  const termOptions = terms.map((t) => ({ label: t.name, value: t.id }));
+  const expandedClass = classes.find((c) => c.id === expanded);
 
   const columns: Column<Class>[] = [
     { key: "subject_name", label: "Subject" },
@@ -75,7 +87,7 @@ export default function ClassesPage() {
       key: "term_id",
       label: "Term",
       render: (row) => {
-        const term = mockTerms.find((t) => t.id === row.term_id);
+        const term = terms.find((t) => t.id === row.term_id);
         return <span className="text-gray-400 text-xs">{term?.name ?? "—"}</span>;
       },
     },
@@ -91,7 +103,7 @@ export default function ClassesPage() {
       render: (row) => (
         <span className="flex items-center gap-1.5 text-gray-300">
           <Users size={13} className="text-gray-500" />
-          {row.student_count}
+          {row.student_count ?? 0}
         </span>
       ),
     },
@@ -145,90 +157,35 @@ export default function ClassesPage() {
     setValue("subject_id", cls.subject_id);
     setValue("teacher_id", cls.teacher_id);
     setValue("term_id", cls.term_id);
-    setValue("semester", cls.semester);
-    setValue("division", cls.division);
+    setValue("semester", cls.semester ?? 1);
+    setValue("division", cls.division ?? "");
     setEditOpen(true);
   }
 
   function onAdd(data: FormData) {
-    setSaving(true);
-    setTimeout(() => {
-      const subject = mockSubjects.find((s) => s.id === data.subject_id);
-      const teacher = mockTeachers.find((t) => t.id === data.teacher_id);
-      const code = Math.random().toString(36).slice(2, 9).toUpperCase();
-      const newClass: Class = {
-        id: `cls-${Date.now()}`,
-        subject_id: data.subject_id,
-        teacher_id: data.teacher_id,
-        term_id: data.term_id,
-        semester: data.semester,
-        division: data.division,
-        join_code: code,
-        subject_name: subject?.name ?? "Unknown",
-        teacher_name: teacher?.full_name ?? "Unknown",
-        student_count: 0,
-        created_at: new Date().toISOString(),
-      };
-      setClasses((prev) => [newClass, ...prev]);
-      setAddOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Class created", `${subject?.name} created with code ${code}`);
-    }, 600);
+    create.mutate(data, { onSuccess: () => { setAddOpen(false); reset(); } });
   }
 
   function onEdit(data: FormData) {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      const subject = mockSubjects.find((s) => s.id === data.subject_id);
-      const teacher = mockTeachers.find((t) => t.id === data.teacher_id);
-      setClasses((prev) =>
-        prev.map((c) =>
-          c.id === selected.id
-            ? {
-                ...c,
-                ...data,
-                subject_name: subject?.name ?? c.subject_name,
-                teacher_name: teacher?.full_name ?? c.teacher_name,
-              }
-            : c
-        )
-      );
-      setEditOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Class updated");
-    }, 600);
+    update.mutate(
+      { id: selected.id, body: data },
+      { onSuccess: () => { setEditOpen(false); reset(); } }
+    );
   }
 
   function onDelete() {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setClasses((prev) => prev.filter((c) => c.id !== selected.id));
-      setDeleteOpen(false);
-      setSaving(false);
-      toast.success("Class deleted");
-      setSelected(null);
-    }, 500);
+    remove.mutate(selected.id, {
+      onSuccess: () => { setDeleteOpen(false); setSelected(null); },
+    });
   }
 
   function onEnroll() {
     if (!selected || !enrollStudentId) return;
-    setSaving(true);
-    const student = mockStudents.find((s) => s.id === enrollStudentId);
-    setTimeout(() => {
-      setClasses((prev) =>
-        prev.map((c) =>
-          c.id === selected.id ? { ...c, student_count: c.student_count + 1 } : c
-        )
-      );
-      setEnrollOpen(false);
-      setEnrollStudentId("");
-      setSaving(false);
-      toast.success("Student enrolled", `${student?.full_name} enrolled successfully.`);
-    }, 500);
+    enroll.mutate(enrollStudentId, {
+      onSuccess: () => { setEnrollOpen(false); setEnrollStudentId(""); },
+    });
   }
 
   const FormFields = () => (
@@ -237,7 +194,7 @@ export default function ClassesPage() {
         <label className="block text-xs text-gray-400 mb-1.5">Subject</label>
         <select {...register("subject_id")} className="input-glass">
           <option value="">Select subject…</option>
-          {mockSubjects.map((s) => (
+          {subjects.map((s) => (
             <option key={s.id} value={s.id} className="bg-[#0a0a0f]">{s.name} ({s.code})</option>
           ))}
         </select>
@@ -247,7 +204,7 @@ export default function ClassesPage() {
         <label className="block text-xs text-gray-400 mb-1.5">Teacher</label>
         <select {...register("teacher_id")} className="input-glass">
           <option value="">Select teacher…</option>
-          {mockTeachers.map((t) => (
+          {teachers.map((t) => (
             <option key={t.id} value={t.id} className="bg-[#0a0a0f]">{t.full_name}</option>
           ))}
         </select>
@@ -257,7 +214,7 @@ export default function ClassesPage() {
         <label className="block text-xs text-gray-400 mb-1.5">Term</label>
         <select {...register("term_id")} className="input-glass">
           <option value="">Select term…</option>
-          {mockTerms.map((t) => (
+          {terms.map((t) => (
             <option key={t.id} value={t.id} className="bg-[#0a0a0f]">{t.name}</option>
           ))}
         </select>
@@ -296,8 +253,8 @@ export default function ClassesPage() {
 
       <div className="grid grid-cols-3 gap-4">
         <StatCard label="Total Classes" value={classes.length} icon={BookOpen} color="purple" delay={0.05} />
-        <StatCard label="Total Students" value={classes.reduce((a, c) => a + c.student_count, 0)} icon={Users} color="cyan" delay={0.1} />
-        <StatCard label="Active Terms" value={mockTerms.filter((t) => t.is_active).length} icon={BookOpen} color="blue" delay={0.15} />
+        <StatCard label="Total Students" value={classes.reduce((a, c) => a + (c.student_count ?? 0), 0)} icon={Users} color="cyan" delay={0.1} />
+        <StatCard label="Active Terms" value={terms.filter((t) => t.is_active).length} icon={BookOpen} color="blue" delay={0.15} />
       </div>
 
       <div className="flex items-center gap-3">
@@ -307,7 +264,9 @@ export default function ClassesPage() {
 
       {/* Table with expandable rows */}
       <div className="space-y-0">
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          <TableSkeleton rows={6} />
+        ) : filtered.length === 0 ? (
           <div className="glass-panel rounded-xl">
             <EmptyState
               icon={BookOpen}
@@ -332,16 +291,16 @@ export default function ClassesPage() {
               <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-white">
-                    Enrolled Students — {classes.find((c) => c.id === expanded)?.subject_name}
+                    Enrolled Students — {expandedClass?.subject_name}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {classes.find((c) => c.id === expanded)?.student_count} students
+                    {expandedClass?.student_count ?? roster.length} students
                   </p>
                 </div>
                 <Button
                   size="sm"
                   onClick={() => {
-                    setSelected(classes.find((c) => c.id === expanded) ?? null);
+                    setSelected(expandedClass ?? null);
                     setEnrollOpen(true);
                   }}
                 >
@@ -349,15 +308,21 @@ export default function ClassesPage() {
                 </Button>
               </div>
               <div className="divide-y divide-white/5">
-                {mockStudents.slice(0, 3).map((s) => (
-                  <div key={s.id} className="px-5 py-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-white">{s.full_name}</p>
-                      <p className="text-xs text-gray-400">{s.roll_number} · {s.email}</p>
+                {rosterLoading ? (
+                  <div className="px-5 py-4 text-sm text-gray-500">Loading students…</div>
+                ) : roster.length === 0 ? (
+                  <div className="px-5 py-4 text-sm text-gray-500">No students enrolled yet.</div>
+                ) : (
+                  roster.map((s) => (
+                    <div key={s.id} className="px-5 py-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-white">{s.full_name}</p>
+                        <p className="text-xs text-gray-400">{s.roll_number ?? "—"} · {s.email}</p>
+                      </div>
+                      <Badge variant="purple">Sem {s.semester ?? "—"}</Badge>
                     </div>
-                    <Badge variant="purple">Sem {s.semester}</Badge>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </motion.div>
           )}
@@ -368,9 +333,10 @@ export default function ClassesPage() {
       <Modal open={addOpen} onClose={() => { setAddOpen(false); reset(); }} title="Create Class">
         <form onSubmit={handleSubmit(onAdd)} className="space-y-5">
           <FormFields />
+          <p className="text-xs text-gray-500">A unique join code will be auto-generated.</p>
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Create Class</Button>
+            <Button type="submit" loading={create.isPending} className="flex-1">Create Class</Button>
           </div>
         </form>
       </Modal>
@@ -381,7 +347,7 @@ export default function ClassesPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Save Changes</Button>
+            <Button type="submit" loading={update.isPending} className="flex-1">Save Changes</Button>
           </div>
         </form>
       </Modal>
@@ -400,16 +366,16 @@ export default function ClassesPage() {
               className="input-glass"
             >
               <option value="">Choose a student…</option>
-              {mockStudents.map((s) => (
+              {students.map((s) => (
                 <option key={s.id} value={s.id} className="bg-[#0a0a0f]">
-                  {s.full_name} ({s.roll_number})
+                  {s.full_name} ({s.roll_number ?? "—"})
                 </option>
               ))}
             </select>
           </div>
           <div className="flex gap-3 pt-1">
             <Button variant="ghost" onClick={() => setEnrollOpen(false)} className="flex-1">Cancel</Button>
-            <Button onClick={onEnroll} loading={saving} disabled={!enrollStudentId} className="flex-1">
+            <Button onClick={onEnroll} loading={enroll.isPending} disabled={!enrollStudentId} className="flex-1">
               Enroll
             </Button>
           </div>
@@ -424,7 +390,7 @@ export default function ClassesPage() {
         title="Delete Class"
         description={`Delete "${selected?.subject_name}"? All timetable slots and enrollments will be removed.`}
         confirmLabel="Delete Class"
-        loading={saving}
+        loading={remove.isPending}
       />
     </div>
   );

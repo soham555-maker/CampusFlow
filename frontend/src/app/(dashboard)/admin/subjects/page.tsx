@@ -14,8 +14,9 @@ import SearchBar from "@/components/ui/SearchBar";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import StatCard from "@/components/ui/StatCard";
 import EmptyState from "@/components/ui/EmptyState";
-import { useToast } from "@/store/toastStore";
-import { mockSubjects, type Subject } from "@/lib/mockData";
+import { TableSkeleton } from "@/components/ui/SkeletonLoader";
+import { useSubjects, useSubjectMutations } from "@/lib/api/hooks";
+import type { Subject } from "@/lib/api/types";
 
 const schema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -27,13 +28,12 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export default function SubjectsPage() {
-  const toast = useToast();
-  const [subjects, setSubjects] = useState<Subject[]>(mockSubjects);
+  const { data: subjects = [], isLoading } = useSubjects();
+  const { create, update, remove } = useSubjectMutations();
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Subject | null>(null);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } =
@@ -50,7 +50,7 @@ export default function SubjectsPage() {
     );
   }, [subjects, search]);
 
-  const totalCredits = subjects.reduce((acc, s) => acc + s.credits, 0);
+  const totalCredits = subjects.reduce((acc, s) => acc + (s.credits ?? 0), 0);
 
   const columns: Column<Subject>[] = [
     { key: "name", label: "Subject Name" },
@@ -103,54 +103,44 @@ export default function SubjectsPage() {
     setSelected(subject);
     setValue("name", subject.name);
     setValue("code", subject.code);
-    setValue("credits", subject.credits);
+    setValue("credits", subject.credits ?? 1);
     setValue("description", subject.description ?? "");
     setEditOpen(true);
   }
 
   function onAdd(data: FormData) {
-    setSaving(true);
-    setTimeout(() => {
-      const newSubject: Subject = {
-        id: `sub-${Date.now()}`,
-        name: data.name,
-        code: data.code,
+    create.mutate(
+      {
+        subject_name: data.name,
+        subject_code: data.code,
         credits: data.credits,
-        description: data.description ?? null,
-        created_at: new Date().toISOString(),
-      };
-      setSubjects((prev) => [newSubject, ...prev]);
-      setAddOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Subject added", `${data.name} has been added.`);
-    }, 600);
+        description: data.description || null,
+      },
+      { onSuccess: () => { setAddOpen(false); reset(); } }
+    );
   }
 
   function onEdit(data: FormData) {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setSubjects((prev) =>
-        prev.map((s) => (s.id === selected.id ? { ...s, ...data, description: data.description ?? null } : s))
-      );
-      setEditOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Subject updated");
-    }, 600);
+    update.mutate(
+      {
+        id: selected.id,
+        body: {
+          subject_name: data.name,
+          subject_code: data.code,
+          credits: data.credits,
+          description: data.description || null,
+        },
+      },
+      { onSuccess: () => { setEditOpen(false); reset(); } }
+    );
   }
 
   function onDelete() {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setSubjects((prev) => prev.filter((s) => s.id !== selected.id));
-      setDeleteOpen(false);
-      setSaving(false);
-      toast.success("Subject removed");
-      setSelected(null);
-    }, 500);
+    remove.mutate(selected.id, {
+      onSuccess: () => { setDeleteOpen(false); setSelected(null); },
+    });
   }
 
   const FormFields = () => (
@@ -208,7 +198,9 @@ export default function SubjectsPage() {
 
       <SearchBar value={search} onChange={setSearch} placeholder="Search by name or subject code…" className="w-full max-w-md" />
 
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <TableSkeleton rows={5} />
+      ) : filtered.length === 0 ? (
         <div className="glass-panel rounded-xl">
           <EmptyState
             icon={Library}
@@ -226,7 +218,7 @@ export default function SubjectsPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Add Subject</Button>
+            <Button type="submit" loading={create.isPending} className="flex-1">Add Subject</Button>
           </div>
         </form>
       </Modal>
@@ -236,7 +228,7 @@ export default function SubjectsPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Save Changes</Button>
+            <Button type="submit" loading={update.isPending} className="flex-1">Save Changes</Button>
           </div>
         </form>
       </Modal>
@@ -248,7 +240,7 @@ export default function SubjectsPage() {
         title="Delete Subject"
         description={`Are you sure you want to delete "${selected?.name}"? Classes using this subject will be affected.`}
         confirmLabel="Delete Subject"
-        loading={saving}
+        loading={remove.isPending}
       />
     </div>
   );

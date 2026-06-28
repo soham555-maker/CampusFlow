@@ -1,4 +1,9 @@
 import os
+from dotenv import load_dotenv
+
+# Load .env before reading any environment variables (CORS_ORIGINS below).
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -47,3 +52,13 @@ app.include_router(timetable_slots.router)
 @app.get("/", tags=["health"])
 def health_check():
     return {"status": "ok", "service": "CampusFlow API"}
+
+
+# ── Current user's role (admin | teacher | student) ──────────────────────────
+from fastapi import Depends
+from auth.dependencies import get_user_role
+
+
+@app.get("/auth/role", tags=["auth"])
+def my_role(role: str = Depends(get_user_role)):
+    return {"role": role}

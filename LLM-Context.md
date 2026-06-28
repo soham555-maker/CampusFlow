@@ -3,170 +3,124 @@
 This file serves as the definitive context map for any LLM working on the CampusFlow project. **Read this file first before making changes or proposing new features.**
 
 ## 1. General Instructions
-- **Stack:** Next.js 15 App Router (React 19/TypeScript) for Frontend, FastAPI (Python) for Backend, Supabase (PostgreSQL) for Database & Auth.
-- **Data Access:** Simple CRUD → `@supabase/ssr` in Next.js Server Actions / Client hooks. Complex logic (conflict detection, availability queries) → FastAPI backend. AI processing (OCR) → FastAPI backend (future).
+- **Stack:** Next.js 15 App Router (React 19/TypeScript) for Frontend, FastAPI (Python) for Backend, Supabase (PostgreSQL + Auth) for Database & Auth.
+- **Data Access (current):** The frontend talks to the backend through **one path** — a typed `apiFetch` client (`frontend/src/lib/api/client.ts`) that attaches the Supabase session JWT as a Bearer token and calls FastAPI. All reads and writes flow through FastAPI; the browser only ever holds the Supabase **anon** key + the user's session JWT. The mock-data layer has been fully removed from the pages.
 - **Design System First:** Always use existing components in `frontend/src/components/ui/` before building new ones. All components MUST use glassmorphism tokens.
 - **Styling Method:** TailwindCSS v4 + custom classes in `globals.css`. Use `cn()` for class merging.
-- **Mock Data:** All frontend pages currently use static mock data from `frontend/src/lib/mockData.ts`. Replace with real API calls in Release 2.
-- **Backend auth pattern:** Every protected route uses a FastAPI `Depends(...)` guard. Auth guards live in `backend/auth/guards.py`; the JWT dependency is in `backend/auth/dependencies.py`. The backend always uses the Supabase service-role key (bypasses RLS), and manually filters by `user_id` for scoped queries.
+- **Backend auth pattern:** Every protected route uses a FastAPI `Depends(...)` guard. Guards live in `backend/auth/guards.py`; the JWT dependency is in `backend/auth/dependencies.py`. The backend always uses the Supabase **service-role** key (bypasses RLS) and manually scopes queries by the resolved user/role.
 
 ## 2. UI Theme & Consistency
 - **Aesthetic:** High-end glassmorphism, dynamic, premium, dark. Every surface uses `.glass-panel`.
 - **Colors:**
   - Background: `#0a0a0f` (very dark blue-black)
-  - Surface: `rgba(255, 255, 255, 0.03)` + 1px border `rgba(255, 255, 255, 0.05)` via `.glass-panel`
-  - Accents: Purple `#8b5cf6` (primary actions) and Cyan `#06b6d4` (secondary/info)
+  - Surface: `rgba(255,255,255,0.03)` + 1px border `rgba(255,255,255,0.05)` via `.glass-panel`
+  - Accents: Purple `#8b5cf6` (primary) and Cyan `#06b6d4` (secondary/info)
   - Text: white for primary, `gray-400` for muted
-- **Glass variants in globals.css:**
-  - `.glass-panel` — standard blurred surface
-  - `.glass-panel-hover` — interactive variant with hover states
-  - `.glass-matte` — iOS-style frosted surface (landing page)
-  - `.glass-soft` — bento tiles and role panels
-  - `.glass-frost` — hero panels with matte grain overlay (also used in timetable slots)
-  - `.glass-sheen` — specular edge highlight
-- **Animations:** Framer Motion for page transitions, card entrances, modal animations, tab switches. CSS animations for aurora, float, scan, pulse.
-- **Typography:** Inter font. Tight tracking on headers.
-- **Toast System:** Global Zustand store (`src/store/toastStore.ts`) + `<ToastContainer />` in root layout.
+- **Glass variants in globals.css:** `.glass-panel`, `.glass-panel-hover`, `.glass-matte`, `.glass-soft`, `.glass-frost` (matte grain — also used for timetable slots), `.glass-sheen`.
+- **Animations:** Framer Motion for page/card/modal transitions and tab switches. CSS for aurora/float/scan/pulse.
+- **Toast System:** Global Zustand store (`src/store/toastStore.ts`) + `<ToastContainer />` in root layout. Mutation hooks fire success toasts and surface backend error details (including `409` conflicts) automatically.
 
-## 3. Features Implemented
+## 3. Frontend Data Layer (the integration spine)
+
+Located in `frontend/src/lib/api/`:
+
+- **`client.ts`** — `apiFetch` + `api.{get,post,put,del}` + `qs()`. Pulls the JWT from the Supabase browser client, sets `Authorization: Bearer`, prefixes `NEXT_PUBLIC_API_URL`, throws a typed `ApiError(status, detail)` on non-2xx.
+- **`types.ts`** — `Raw*` types mirror backend responses exactly; **view types** keep the denormalized shape the UI renders (`Subject.name`/`.code`, `Classroom.type`, joined `subject_name`/`room_number`, `student_count`). Mappers (`toStudent`, `toSubject`, …) and enrichers (`enrichSlot`, `enrichAnnouncement`, `enrichAssignment`, `enrichMark`) bridge the two. `ROOM_TYPE_LABELS` maps backend `room_type` (`lecture`/`lab`/`seminar`/`auditorium`/`tutorial`) ⇄ display labels.
+- **`resources.ts`** — thin typed CRUD functions per entity (`students`, `teachers`, `subjects`, `terms`, `classrooms`, `classes`, `timetable`, `announcements`, `assignments`, `marks`, `auth.role`).
+- **`hooks.ts`** — TanStack Query hooks. Catalog queries (`useStudents`, …), `useRole`, enriched queries (`useMyTimetable`, `useTimetable`, `useAnnouncements`, `useAssignments`, `useStudentMarks`, `useMarksForAssignments`, `useFreeRooms`, `useTeacherAvailability`), and CRUD **mutation hooks** (`useStudentMutations`, …, `useSlotMutations`, `useSetActiveTerm`, `useEnrollmentMutations`, `useJoinClass`) that toast + invalidate on success.
+- **Enrichment is client-side** via lookup maps built from `useMyClasses` (works for every role — admin gets all classes, teacher/student get their own) + `useClassrooms`. No admin-only endpoints are required to label slots/announcements for non-admins.
+- **`components/providers/QueryProvider.tsx`** wraps the app in the root layout.
+
+## 4. Features Implemented
 
 ### Database
 - **Schema:** No `profiles` table — identity split per role into `students`, `teachers`, `admins`. Plus `subjects`, `terms`, `classes`, `student_classes`, `classrooms`, `timetable_slots`, `announcements`, `assignments`, `marks`. RLS active on every table.
 - **Join codes:** `classes.join_code` (8-char) and `terms.join_code` (6-char) — auto-generated.
-- **Role resolution:** `auth_role()` RPC returns `'admin' | 'teacher' | 'student'`.
-- **Triggers:** `handle_new_user`, `set_updated_at`, `sync_slot_from_class`.
+- **Role resolution:** `auth_role()` RPC. `handle_new_user` trigger reads `role`/`full_name` from signup metadata and creates the matching `students`/`teachers` row.
 - **Conflict constraints:** `EXCLUDE USING gist` on `timetable_slots`.
+- **Seeded data:** project `wcvqowfuudzguuwjpltl` has a full dataset (1 admin, 5 teachers, 10 students, 8 subjects, 1 term, 6 classrooms, 8 classes, 25 slots, announcements/assignments/marks). All 16 auth logins share password `campusflow123` (e.g. `admin@campusflow.edu`, `sharma@campusflow.edu`, `aarav@campusflow.edu`).
 
 ### Backend (FastAPI)
-- Full CRUD for all 10 entities via 10 routers.
-- Two-layer timetable conflict detection.
-- Key endpoints: `GET /timetable/my`, `GET /timetable/classrooms/available`, `GET /timetable/teacher-availability`.
+- Full CRUD for all 10 entities via 10 routers + `GET /auth/role`.
+- Two-layer timetable conflict detection (API pre-check + DB `EXCLUDE`).
+- `utils/db.py::fetch_one()` — safe single-row helper (supabase-py 2.31 returns `None`, not `data=None`, on zero rows; raw `.maybe_single().execute().data` would 500).
+- `ClassResponse.student_count` populated via `student_classes(count)` aggregate.
+- `GET /classrooms` is open to any authenticated user (room directory); classroom writes stay admin-only.
+- CORS configured via `CORS_ORIGINS` (`.env`); `load_dotenv()` runs at the top of `main.py`.
 
-### Frontend (Static Mock Data — Release 1)
-- **Auth:** Next.js Middleware + Supabase SSR. Role-based routing.
-- **Mock Data:** `frontend/src/lib/mockData.ts` — 6 students, 4 teachers, 5 subjects, 2 terms, 6 classrooms, 4 classes, 8 slots, 3 announcements, 3 assignments, 5 marks (Indian engineering college setting).
-- **Toast System:** Zustand store + glass-styled toast container (success/error/info/warning).
-- **Admin pages:** `/admin/students`, `/admin/teachers`, `/admin/classes`, `/admin/classrooms`, `/admin/subjects` (NEW), `/admin/terms` (NEW) — all with full CRUD modals, search/filter, confirm dialogs, stat cards.
-- **Timetable Page** (`/timetable`): Mega page with 3 tabs — Timetable Grid (matte grainy glass slots, click-to-add for admin/teacher), Free Room Finder (real-time overlap detection from mock data), Teacher Availability (free window computation). Filter bar with teacher/room/class/term filters.
-- **Student Dashboard** (`/student`): Stat cards, Today's Classes, Upcoming Assignments, Recent Announcements, Weekly Timetable.
-- **Teacher Dashboard** (`/teacher`): Stat cards, My Classes, Today's Schedule, Post Announcement modal, Create Assignment modal, Weekly Timetable.
-- **Class Pages:** `/class` — card grid with join-code modal. `/class/[classId]` — class hub with 3 tabs (Announcements with expandable body, Assignments with status badges, Grades table with progress bars).
-- **Sidebar:** Updated with Subjects, Terms, My Classes links. Dynamic per role (admin/teacher/student). Virtual Classroom link removed; consolidated under /timetable and /class.
-- **UI Components (all in `components/ui/`):**
-  - `GlassCard`, `Button`, `DataTable`, `Modal` — original components
-  - `Badge` — 7 variants (default/success/error/warning/info/purple/cyan)
-  - `SearchBar` — glass-styled with clear button
-  - `FilterDropdown` — glass-styled native select
-  - `StatCard` — animated stat with icon, value, optional trend
-  - `EmptyState` — icon + title + description + optional CTA
-  - `SkeletonLoader` — `Skeleton`, `TableSkeleton`, `CardSkeleton` shimmer components
-  - `Tabs` — animated active indicator via Framer Motion `layoutId`
-  - `ConfirmDialog` — glass delete confirmation with danger button
-  - `Toast` — `ToastContainer` component (used in root layout)
+### Frontend (Live — wired to FastAPI)
+- **Auth:** Supabase SSR + middleware. Login redirects by role (`/admin/students` | `/teacher` | `/student`); register → `signUp` with role metadata. `(dashboard)/layout.tsx` resolves role server-side. `NEXT_PUBLIC_DEV_BYPASS` exists only as a dev escape hatch (default `false`).
+- **Admin pages** (`/admin/students|teachers|classes|classrooms|subjects|terms`): live CRUD via mutation hooks, search/filter, confirm dialogs, skeleton loaders, stat cards. Classes show real `student_count`, dropdowns from live subjects/teachers/terms, expandable roster (`/classes/{id}/students`), enroll modal.
+- **Timetable** (`/timetable`): grid from `/timetable/my` (enriched), role-gated add/delete slot with **409 conflict toasts**, Free Room Finder (`/timetable/classrooms/available`), Teacher Availability (computed from visible slots). Filters derived role-safely from visible data.
+- **Student Dashboard** (`/student`): real profile name, class-scoped today's classes / assignments / announcements, weekly timetable.
+- **Teacher Dashboard** (`/teacher`): my classes + today's schedule from `/classes/my` + `/timetable/my`; Post Announcement / Create Assignment wired to live endpoints.
+- **Class hub** (`/class`, `/class/[classId]`): selector from `/classes/my` with join-code modal (`POST /classes/join`); hub tabs — announcements, assignments, and grades (teacher sees the full roster×assignment grid; student sees their own marks via `/marks/student/{id}`).
 
-## 4. Features Remaining (Release 2)
+## 5. Features Remaining
+- **Polish:** responsive QA (320–768px); empty/error-state pass on a few secondary views.
+- **Future:** OCR Engine (Release 3) and Campus Map (Release 4) pages are still placeholders.
+- **Deploy (Release 5):** address Supabase security advisors (move `btree_gist` out of `public`, enable leaked-password protection), set production `CORS_ORIGINS`, deploy frontend (Vercel) + backend (Render/Railway).
 
-### Frontend → Backend Wiring
-- Replace all mock data calls with real FastAPI/Supabase API calls.
-- Wire timetable grid to `GET /timetable/my`.
-- Wire Admin CRUD modals to FastAPI POST/PUT/DELETE endpoints.
-- Show 409 conflict error toasts from timetable slot creation.
-- Student self-enrollment UI — join code input → `POST /classes/join`.
-- Grades tab in class hub → wire to `/marks` endpoints.
-
-### Polish
-- Responsive QA on mobile (320–768px breakpoints).
-- Virtual Classroom placeholder → route to `/class` system.
-- OCR Engine and Campus Map pages (future Releases 3 & 4).
-
-## 5. Routes Per Role
+## 6. Routes Per Role
 
 | Role | Routes |
 |------|--------|
-| Admin | `/admin/students`, `/admin/teachers`, `/admin/classes`, `/admin/classrooms`, `/admin/subjects`, `/admin/terms`, `/timetable`, `/ocr`, `/map` |
+| Admin | `/admin/students`, `/admin/teachers`, `/admin/classes`, `/admin/classrooms`, `/admin/subjects`, `/admin/terms`, `/timetable`, `/class`, `/ocr`, `/map` |
 | Teacher | `/teacher`, `/timetable`, `/class`, `/class/[classId]` |
 | Student | `/student`, `/timetable`, `/class`, `/class/[classId]` |
 
-## 6. File Map
+## 7. Running Locally
+```
+# Backend (from backend/, venv active)
+uvicorn main:app --reload          # http://localhost:8000, docs at /docs
+# Frontend (from frontend/)
+npm run dev                         # http://localhost:3000 (or :3001)
+```
+`backend/.env` needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORS_ORIGINS`.
+`frontend/.env.local` needs `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_URL`.
+
+## 8. File Map
 
 ```
 frontend/src/
 ├── app/
-│   ├── layout.tsx                        # Root layout (includes ToastContainer)
-│   ├── page.tsx                          # Landing page
-│   ├── globals.css                       # Design tokens, glass variants, animations
-│   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   └── register/page.tsx
+│   ├── layout.tsx                        # Root layout (QueryProvider + ToastContainer)
+│   ├── (auth)/{login,register}/page.tsx
 │   └── (dashboard)/
-│       ├── layout.tsx                    # Auth + role detection → DashboardLayout
-│       ├── admin/
-│       │   ├── students/page.tsx
-│       │   ├── teachers/page.tsx
-│       │   ├── classes/page.tsx
-│       │   ├── classrooms/page.tsx
-│       │   ├── subjects/page.tsx         # NEW
-│       │   └── terms/page.tsx            # NEW
-│       ├── timetable/page.tsx            # Mega timetable (grid + free rooms + availability)
+│       ├── layout.tsx                    # Server-side role resolution → DashboardLayout
+│       ├── admin/{students,teachers,classes,classrooms,subjects,terms}/page.tsx
+│       ├── timetable/page.tsx
 │       ├── student/page.tsx
 │       ├── teacher/page.tsx
-│       ├── class/
-│       │   ├── page.tsx                  # Class selector grid
-│       │   └── [classId]/page.tsx        # Class hub (announcements/assignments/grades)
-│       ├── map/page.tsx
-│       └── ocr/page.tsx
+│       └── class/{page.tsx,[classId]/page.tsx}
 ├── components/
-│   ├── ui/
-│   │   ├── GlassCard.tsx
-│   │   ├── Button.tsx
-│   │   ├── DataTable.tsx
-│   │   ├── Modal.tsx
-│   │   ├── Badge.tsx                     # NEW
-│   │   ├── SearchBar.tsx                 # NEW
-│   │   ├── FilterDropdown.tsx            # NEW
-│   │   ├── StatCard.tsx                  # NEW
-│   │   ├── EmptyState.tsx                # NEW
-│   │   ├── SkeletonLoader.tsx            # NEW
-│   │   ├── Tabs.tsx                      # NEW
-│   │   ├── ConfirmDialog.tsx             # NEW
-│   │   └── Toast.tsx                     # NEW
-│   ├── layout/
-│   │   ├── DashboardLayout.tsx
-│   │   └── Sidebar.tsx                   # Updated (Subjects, Terms, My Classes)
-│   ├── timetable/
-│   │   ├── TimetableGrid.tsx
-│   │   └── CalendarView.tsx
-│   └── landing/
-│       └── [Nav, Hero, Features, Roles, CTA, Footer, ...]
-├── store/
-│   └── toastStore.ts                     # NEW — Zustand toast store + useToast hook
+│   ├── ui/                               # GlassCard, Button, DataTable, Modal, Badge,
+│   │                                     # SearchBar, FilterDropdown, StatCard, EmptyState,
+│   │                                     # SkeletonLoader, Tabs, ConfirmDialog, Toast
+│   ├── providers/QueryProvider.tsx       # TanStack Query client
+│   ├── layout/{DashboardLayout,Sidebar}.tsx
+│   └── timetable/{TimetableGrid,CalendarView}.tsx
+├── store/toastStore.ts
 ├── lib/
-│   ├── mockData.ts                       # NEW — all static mock data
-│   └── supabase/
-│       ├── client.ts
-│       └── server.ts
-├── fonts/fonts.ts
+│   ├── api/{client,types,resources,hooks}.ts   # ← the integration layer
+│   └── supabase/{client,server}.ts
 ├── middleware.ts
 └── utils/cn.ts
 ```
 
 ```
 backend/
-├── auth/
-│   ├── dependencies.py
-│   └── guards.py
+├── auth/{dependencies,guards}.py
 ├── routers/ (10 routers — full CRUD)
 ├── schemas/ (11 schema files)
-├── tests/
-├── utils/conflict.py
+├── utils/{conflict,db}.py                # db.py::fetch_one()
+├── tests/{seed_data,test_api}.py         # 45 assertions, all pass
 ├── config.py
-├── main.py
-└── requirements.txt
+└── main.py                               # CORS, load_dotenv, GET /auth/role
 ```
 
-## 7. How to Update this LLM-Context
+## 9. How to Update this LLM-Context
 1. Move completed features from "Remaining" → "Implemented".
-2. Add new design tokens or UI paradigms to section 2.
-3. Note any new dependency or architectural pattern under section 1.
-4. Update the file map in section 6 when files are added/moved.
-5. Keep all descriptions concise and bulleted.
+2. Note new endpoints/hooks under sections 3–4.
+3. Keep the file map current when files are added/moved.
+4. Keep descriptions concise and bulleted.

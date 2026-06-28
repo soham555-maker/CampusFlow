@@ -3,6 +3,7 @@ from typing import List, Optional
 from schemas.marks import MarkCreate, MarkUpdate, MarkResponse
 from auth.guards import require_teacher_or_admin, require_authenticated
 from config import get_supabase
+from utils.db import fetch_one
 
 router = APIRouter(prefix="/marks", tags=["marks"])
 
@@ -41,15 +42,13 @@ def create_mark(body: MarkCreate, user=Depends(require_teacher_or_admin)):
     if "marks_obtained" in data and data["marks_obtained"] is not None:
         data["marks_obtained"] = float(data["marks_obtained"])
     # Check for duplicate (assignment_id + student_id must be unique)
-    existing = (
+    existing = fetch_one(
         supabase.table("marks")
         .select("id")
         .eq("assignment_id", data["assignment_id"])
         .eq("student_id", data["student_id"])
-        .maybe_single()
-        .execute()
     )
-    if existing.data:
+    if existing:
         raise HTTPException(status_code=409, detail="Mark already exists for this student and assignment")
     res = supabase.table("marks").insert(data).execute()
     if not res.data:

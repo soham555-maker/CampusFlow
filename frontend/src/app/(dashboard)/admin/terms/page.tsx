@@ -13,8 +13,9 @@ import Badge from "@/components/ui/Badge";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import StatCard from "@/components/ui/StatCard";
 import EmptyState from "@/components/ui/EmptyState";
-import { useToast } from "@/store/toastStore";
-import { mockTerms, type Term } from "@/lib/mockData";
+import { TableSkeleton } from "@/components/ui/SkeletonLoader";
+import { useTerms, useTermMutations, useSetActiveTerm } from "@/lib/api/hooks";
+import type { Term } from "@/lib/api/types";
 
 const schema = z.object({
   name: z.string().min(2, "Term name is required"),
@@ -25,7 +26,8 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-function formatDate(d: string) {
+function formatDate(d: string | null) {
+  if (!d) return "—";
   return new Date(d).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
@@ -34,23 +36,20 @@ function formatDate(d: string) {
 }
 
 export default function TermsPage() {
-  const toast = useToast();
-  const [terms, setTerms] = useState<Term[]>(mockTerms);
+  const { data: terms = [], isLoading } = useTerms();
+  const { create, update, remove } = useTermMutations();
+  const setActiveMutation = useSetActiveTerm();
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Term | null>(null);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } =
     useForm<FormData>({ resolver: zodResolver(schema) });
 
   function setActive(termId: string) {
-    setTerms((prev) =>
-      prev.map((t) => ({ ...t, is_active: t.id === termId }))
-    );
-    const name = terms.find((t) => t.id === termId)?.name;
-    toast.success("Active term updated", `${name} is now the active term.`);
+    const otherActiveIds = terms.filter((t) => t.is_active && t.id !== termId).map((t) => t.id);
+    setActiveMutation.mutate({ id: termId, otherActiveIds });
   }
 
   const columns: Column<Term>[] = [
@@ -122,61 +121,40 @@ export default function TermsPage() {
   function openEdit(term: Term) {
     setSelected(term);
     setValue("name", term.name);
-    setValue("start_date", term.start_date);
-    setValue("end_date", term.end_date);
+    setValue("start_date", term.start_date ?? "");
+    setValue("end_date", term.end_date ?? "");
     setValue("is_active", term.is_active);
     setEditOpen(true);
   }
 
   function onAdd(data: FormData) {
-    setSaving(true);
-    setTimeout(() => {
-      const code = Math.random().toString(36).slice(2, 8).toUpperCase();
-      const newTerm: Term = {
-        id: `term-${Date.now()}`,
+    create.mutate(
+      {
         name: data.name,
         start_date: data.start_date,
         end_date: data.end_date,
         is_active: false,
-        join_code: code,
-        created_at: new Date().toISOString(),
-      };
-      setTerms((prev) => [newTerm, ...prev]);
-      setAddOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Term created", `${data.name} has been created.`);
-    }, 600);
+      },
+      { onSuccess: () => { setAddOpen(false); reset(); } }
+    );
   }
 
   function onEdit(data: FormData) {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setTerms((prev) =>
-        prev.map((t) =>
-          t.id === selected.id
-            ? { ...t, name: data.name, start_date: data.start_date, end_date: data.end_date }
-            : t
-        )
-      );
-      setEditOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Term updated");
-    }, 600);
+    update.mutate(
+      {
+        id: selected.id,
+        body: { name: data.name, start_date: data.start_date, end_date: data.end_date },
+      },
+      { onSuccess: () => { setEditOpen(false); reset(); } }
+    );
   }
 
   function onDelete() {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setTerms((prev) => prev.filter((t) => t.id !== selected.id));
-      setDeleteOpen(false);
-      setSaving(false);
-      toast.success("Term deleted");
-      setSelected(null);
-    }, 500);
+    remove.mutate(selected.id, {
+      onSuccess: () => { setDeleteOpen(false); setSelected(null); },
+    });
   }
 
   const FormFields = () => (
@@ -226,7 +204,9 @@ export default function TermsPage() {
         <StatCard label="Inactive" value={inactiveCount} icon={CalendarRange} color="blue" delay={0.15} />
       </div>
 
-      {terms.length === 0 ? (
+      {isLoading ? (
+        <TableSkeleton rows={4} />
+      ) : terms.length === 0 ? (
         <div className="glass-panel rounded-xl">
           <EmptyState
             icon={CalendarRange}
@@ -245,7 +225,7 @@ export default function TermsPage() {
           <p className="text-xs text-gray-500">A unique join code will be auto-generated.</p>
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Create Term</Button>
+            <Button type="submit" loading={create.isPending} className="flex-1">Create Term</Button>
           </div>
         </form>
       </Modal>
@@ -255,7 +235,7 @@ export default function TermsPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Save Changes</Button>
+            <Button type="submit" loading={update.isPending} className="flex-1">Save Changes</Button>
           </div>
         </form>
       </Modal>
@@ -267,7 +247,7 @@ export default function TermsPage() {
         title="Delete Term"
         description={`Delete "${selected?.name}"? All classes and timetable slots under this term will be affected.`}
         confirmLabel="Delete Term"
-        loading={saving}
+        loading={remove.isPending}
       />
     </div>
   );

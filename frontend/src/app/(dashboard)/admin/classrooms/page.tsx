@@ -15,43 +15,40 @@ import FilterDropdown from "@/components/ui/FilterDropdown";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import StatCard from "@/components/ui/StatCard";
 import EmptyState from "@/components/ui/EmptyState";
-import { useToast } from "@/store/toastStore";
-import { mockClassrooms, type Classroom } from "@/lib/mockData";
+import { TableSkeleton } from "@/components/ui/SkeletonLoader";
+import { useClassrooms, useClassroomMutations } from "@/lib/api/hooks";
+import { ROOM_TYPE_OPTIONS, type Classroom } from "@/lib/api/types";
 
 const schema = z.object({
   room_number: z.string().min(1, "Room number is required"),
   building: z.string().min(1, "Building is required"),
   floor: z.coerce.number().min(0),
   capacity: z.coerce.number().min(1, "Capacity must be at least 1"),
-  type: z.enum(["Lecture Hall", "Lab", "Seminar Room", "Tutorial Room"]),
+  room_type: z.enum(["lecture", "lab", "seminar", "auditorium", "tutorial"]),
   amenities: z.string(),
 });
 
 type FormData = z.infer<typeof schema>;
 
-const typeOptions = [
-  { label: "Lecture Hall", value: "Lecture Hall" },
-  { label: "Lab", value: "Lab" },
-  { label: "Seminar Room", value: "Seminar Room" },
-  { label: "Tutorial Room", value: "Tutorial Room" },
-];
+// value = backend room_type, label = display name
+const typeOptions = ROOM_TYPE_OPTIONS;
 
 const typeBadge: Record<string, "purple" | "cyan" | "info" | "default"> = {
-  "Lecture Hall": "purple",
-  Lab: "cyan",
-  "Seminar Room": "info",
-  "Tutorial Room": "default",
+  lecture: "purple",
+  lab: "cyan",
+  seminar: "info",
+  auditorium: "default",
+  tutorial: "default",
 };
 
 export default function ClassroomsPage() {
-  const toast = useToast();
-  const [classrooms, setClassrooms] = useState<Classroom[]>(mockClassrooms);
+  const { data: classrooms = [], isLoading } = useClassrooms();
+  const { create, update, remove } = useClassroomMutations();
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Classroom | null>(null);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } =
@@ -63,13 +60,13 @@ export default function ClassroomsPage() {
       const matchSearch =
         !search ||
         c.room_number.toLowerCase().includes(q) ||
-        c.building.toLowerCase().includes(q);
-      const matchType = !filterType || c.type === filterType;
+        (c.building ?? "").toLowerCase().includes(q);
+      const matchType = !filterType || c.room_type === filterType;
       return matchSearch && matchType;
     });
   }, [classrooms, search, filterType]);
 
-  const totalCapacity = classrooms.reduce((a, c) => a + c.capacity, 0);
+  const totalCapacity = classrooms.reduce((a, c) => a + (c.capacity ?? 0), 0);
 
   const columns: Column<Classroom>[] = [
     { key: "room_number", label: "Room No." },
@@ -80,7 +77,7 @@ export default function ClassroomsPage() {
       key: "type",
       label: "Type",
       render: (row) => (
-        <Badge variant={typeBadge[row.type] ?? "default"}>{row.type}</Badge>
+        <Badge variant={typeBadge[row.room_type ?? ""] ?? "default"}>{row.type}</Badge>
       ),
     },
     {
@@ -118,69 +115,55 @@ export default function ClassroomsPage() {
   function openEdit(room: Classroom) {
     setSelected(room);
     setValue("room_number", room.room_number);
-    setValue("building", room.building);
-    setValue("floor", room.floor);
-    setValue("capacity", room.capacity);
-    setValue("type", room.type);
+    setValue("building", room.building ?? "");
+    setValue("floor", room.floor ?? 0);
+    setValue("capacity", room.capacity ?? 1);
+    setValue("room_type", (room.room_type as FormData["room_type"]) ?? "lecture");
     setValue("amenities", room.amenities.join(", "));
     setEditOpen(true);
   }
 
+  function splitAmenities(s: string) {
+    return s.split(",").map((a) => a.trim()).filter(Boolean);
+  }
+
   function onAdd(data: FormData) {
-    setSaving(true);
-    setTimeout(() => {
-      const amenities = data.amenities
-        .split(",")
-        .map((a) => a.trim())
-        .filter(Boolean);
-      const newRoom: Classroom = {
-        id: `room-${Date.now()}`,
+    create.mutate(
+      {
         room_number: data.room_number,
         building: data.building,
         floor: data.floor,
         capacity: data.capacity,
-        type: data.type,
-        amenities,
-        created_at: new Date().toISOString(),
-      };
-      setClassrooms((prev) => [newRoom, ...prev]);
-      setAddOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Classroom added", `${data.room_number} has been added.`);
-    }, 600);
+        room_type: data.room_type,
+        amenities: splitAmenities(data.amenities),
+      },
+      { onSuccess: () => { setAddOpen(false); reset(); } }
+    );
   }
 
   function onEdit(data: FormData) {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      const amenities = data.amenities
-        .split(",")
-        .map((a) => a.trim())
-        .filter(Boolean);
-      setClassrooms((prev) =>
-        prev.map((c) =>
-          c.id === selected.id ? { ...c, ...data, amenities } : c
-        )
-      );
-      setEditOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Classroom updated");
-    }, 600);
+    update.mutate(
+      {
+        id: selected.id,
+        body: {
+          room_number: data.room_number,
+          building: data.building,
+          floor: data.floor,
+          capacity: data.capacity,
+          room_type: data.room_type,
+          amenities: splitAmenities(data.amenities),
+        },
+      },
+      { onSuccess: () => { setEditOpen(false); reset(); } }
+    );
   }
 
   function onDelete() {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setClassrooms((prev) => prev.filter((c) => c.id !== selected.id));
-      setDeleteOpen(false);
-      setSaving(false);
-      toast.success("Classroom removed");
-      setSelected(null);
-    }, 500);
+    remove.mutate(selected.id, {
+      onSuccess: () => { setDeleteOpen(false); setSelected(null); },
+    });
   }
 
   const FormFields = () => (
@@ -209,7 +192,7 @@ export default function ClassroomsPage() {
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1.5">Type</label>
-          <select {...register("type")} className="input-glass">
+          <select {...register("room_type")} className="input-glass">
             {typeOptions.map((o) => (
               <option key={o.value} value={o.value} className="bg-[#0a0a0f]">{o.label}</option>
             ))}
@@ -246,8 +229,8 @@ export default function ClassroomsPage() {
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Total Rooms" value={classrooms.length} icon={Building2} color="purple" delay={0.05} />
         <StatCard label="Total Capacity" value={totalCapacity} icon={Building2} color="cyan" delay={0.1} />
-        <StatCard label="Labs" value={classrooms.filter(c => c.type === "Lab").length} icon={Monitor} color="blue" delay={0.15} />
-        <StatCard label="Lecture Halls" value={classrooms.filter(c => c.type === "Lecture Hall").length} icon={Building2} color="emerald" delay={0.2} />
+        <StatCard label="Labs" value={classrooms.filter(c => c.room_type === "lab").length} icon={Monitor} color="blue" delay={0.15} />
+        <StatCard label="Lecture Halls" value={classrooms.filter(c => c.room_type === "lecture").length} icon={Building2} color="emerald" delay={0.2} />
       </div>
 
       <div className="flex items-center gap-3">
@@ -255,7 +238,9 @@ export default function ClassroomsPage() {
         <FilterDropdown value={filterType} onChange={setFilterType} options={typeOptions} placeholder="All Types" className="w-44" />
       </div>
 
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <TableSkeleton rows={6} />
+      ) : filtered.length === 0 ? (
         <div className="glass-panel rounded-xl">
           <EmptyState
             icon={Building2}
@@ -273,7 +258,7 @@ export default function ClassroomsPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Add Classroom</Button>
+            <Button type="submit" loading={create.isPending} className="flex-1">Add Classroom</Button>
           </div>
         </form>
       </Modal>
@@ -283,7 +268,7 @@ export default function ClassroomsPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Save Changes</Button>
+            <Button type="submit" loading={update.isPending} className="flex-1">Save Changes</Button>
           </div>
         </form>
       </Modal>
@@ -295,7 +280,7 @@ export default function ClassroomsPage() {
         title="Remove Classroom"
         description={`Remove ${selected?.room_number}? Timetable slots using this room will be affected.`}
         confirmLabel="Remove Classroom"
-        loading={saving}
+        loading={remove.isPending}
       />
     </div>
   );

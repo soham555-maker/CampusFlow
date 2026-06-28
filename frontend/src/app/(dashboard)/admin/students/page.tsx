@@ -15,8 +15,9 @@ import FilterDropdown from "@/components/ui/FilterDropdown";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import StatCard from "@/components/ui/StatCard";
 import EmptyState from "@/components/ui/EmptyState";
-import { useToast } from "@/store/toastStore";
-import { mockStudents, type Student } from "@/lib/mockData";
+import { TableSkeleton } from "@/components/ui/SkeletonLoader";
+import { useStudents, useStudentMutations } from "@/lib/api/hooks";
+import type { Student } from "@/lib/api/types";
 
 const schema = z.object({
   full_name: z.string().min(2, "Name must be at least 2 characters"),
@@ -44,8 +45,8 @@ const yearOptions = [
 ];
 
 export default function StudentsPage() {
-  const toast = useToast();
-  const [students, setStudents] = useState<Student[]>(mockStudents);
+  const { data: students = [], isLoading } = useStudents();
+  const { create, update, remove } = useStudentMutations();
   const [search, setSearch] = useState("");
   const [filterYear, setFilterYear] = useState("");
   const [filterDivision, setFilterDivision] = useState("");
@@ -53,7 +54,6 @@ export default function StudentsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Student | null>(null);
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } =
@@ -66,7 +66,7 @@ export default function StudentsPage() {
         !search ||
         s.full_name.toLowerCase().includes(q) ||
         s.email.toLowerCase().includes(q) ||
-        s.roll_number.toLowerCase().includes(q);
+        (s.roll_number ?? "").toLowerCase().includes(q);
       const matchYear = !filterYear || String(s.year) === filterYear;
       const matchDiv = !filterDivision || s.division === filterDivision;
       return matchSearch && matchYear && matchDiv;
@@ -110,63 +110,65 @@ export default function StudentsPage() {
     setSelected(student);
     setValue("full_name", student.full_name);
     setValue("email", student.email);
-    setValue("roll_number", student.roll_number);
-    setValue("semester", student.semester);
-    setValue("division", student.division);
-    setValue("year", student.year);
+    setValue("roll_number", student.roll_number ?? "");
+    setValue("semester", student.semester ?? 1);
+    setValue("division", student.division ?? "");
+    setValue("year", student.year ?? 1);
     setValue("phone", student.phone ?? "");
     setEditOpen(true);
   }
 
   function onAdd(data: FormData) {
-    setSaving(true);
-    setTimeout(() => {
-      const newStudent: Student = {
-        id: `stu-${Date.now()}`,
-        user_id: null,
+    create.mutate(
+      {
         full_name: data.full_name,
         email: data.email,
         roll_number: data.roll_number,
         semester: data.semester,
         division: data.division,
         year: data.year,
-        phone: data.phone ?? null,
-        created_at: new Date().toISOString(),
-      };
-      setStudents((prev) => [newStudent, ...prev]);
-      setAddOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Student added", `${data.full_name} has been added.`);
-    }, 600);
+        phone: data.phone || null,
+      },
+      {
+        onSuccess: () => {
+          setAddOpen(false);
+          reset();
+        },
+      }
+    );
   }
 
   function onEdit(data: FormData) {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setStudents((prev) =>
-        prev.map((s) =>
-          s.id === selected.id ? { ...s, ...data } : s
-        )
-      );
-      setEditOpen(false);
-      reset();
-      setSaving(false);
-      toast.success("Student updated", `${data.full_name} has been updated.`);
-    }, 600);
+    update.mutate(
+      {
+        id: selected.id,
+        body: {
+          full_name: data.full_name,
+          roll_number: data.roll_number,
+          semester: data.semester,
+          division: data.division,
+          year: data.year,
+          phone: data.phone || null,
+        },
+      },
+      {
+        onSuccess: () => {
+          setEditOpen(false);
+          reset();
+        },
+      }
+    );
   }
 
   function onDelete() {
     if (!selected) return;
-    setSaving(true);
-    setTimeout(() => {
-      setStudents((prev) => prev.filter((s) => s.id !== selected.id));
-      setDeleteOpen(false);
-      setSaving(false);
-      toast.success("Student removed", `${selected.full_name} has been removed.`);
-      setSelected(null);
-    }, 500);
+    remove.mutate(selected.id, {
+      onSuccess: () => {
+        setDeleteOpen(false);
+        setSelected(null);
+      },
+    });
   }
 
   const FormFields = () => (
@@ -261,7 +263,9 @@ export default function StudentsPage() {
       </div>
 
       {/* Table */}
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <TableSkeleton rows={6} />
+      ) : filtered.length === 0 ? (
         <div className="glass-panel rounded-xl">
           <EmptyState
             icon={Users}
@@ -280,7 +284,7 @@ export default function StudentsPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setAddOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Add Student</Button>
+            <Button type="submit" loading={create.isPending} className="flex-1">Add Student</Button>
           </div>
         </form>
       </Modal>
@@ -291,7 +295,7 @@ export default function StudentsPage() {
           <FormFields />
           <div className="flex gap-3 pt-1">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={saving} className="flex-1">Save Changes</Button>
+            <Button type="submit" loading={update.isPending} className="flex-1">Save Changes</Button>
           </div>
         </form>
       </Modal>
@@ -304,7 +308,7 @@ export default function StudentsPage() {
         title="Remove Student"
         description={`Are you sure you want to remove ${selected?.full_name}? This action cannot be undone.`}
         confirmLabel="Remove Student"
-        loading={saving}
+        loading={remove.isPending}
       />
     </div>
   );

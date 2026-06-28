@@ -4,14 +4,14 @@ from schemas.students import StudentCreate, StudentUpdate, StudentResponse
 from auth.dependencies import get_current_user, get_user_role
 from auth.guards import require_admin
 from config import get_supabase
+from utils.db import fetch_one
 
 router = APIRouter(prefix="/students", tags=["students"])
 
 
 def _get_student_by_uid(uid: str):
     supabase = get_supabase()
-    res = supabase.table("students").select("*").eq("user_id", uid).maybe_single().execute()
-    return res.data
+    return fetch_one(supabase.table("students").select("*").eq("user_id", uid))
 
 
 # ── Student self-service ──────────────────────────────────────────────────────
@@ -51,10 +51,10 @@ def list_students(user=Depends(require_admin)):
 @router.get("/{student_id}", response_model=StudentResponse)
 def get_student(student_id: str, user=Depends(require_admin)):
     supabase = get_supabase()
-    res = supabase.table("students").select("*").eq("id", student_id).maybe_single().execute()
-    if not res.data:
+    row = fetch_one(supabase.table("students").select("*").eq("id", student_id))
+    if not row:
         raise HTTPException(status_code=404, detail="Student not found")
-    return res.data
+    return row
 
 
 @router.post("", response_model=StudentResponse, status_code=status.HTTP_201_CREATED)

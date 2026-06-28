@@ -10,8 +10,8 @@ import SearchBar from "@/components/ui/SearchBar";
 import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
-import { useToast } from "@/store/toastStore";
-import { mockClasses } from "@/lib/mockData";
+import { CardSkeleton } from "@/components/ui/SkeletonLoader";
+import { useMyClasses, useJoinClass } from "@/lib/api/hooks";
 
 const CLASS_COLORS = [
   "from-purple-500/20 to-purple-500/5 border-purple-500/20",
@@ -22,13 +22,13 @@ const CLASS_COLORS = [
 
 export default function ClassesPage() {
   const router = useRouter();
-  const toast = useToast();
+  const { data: classes = [], isLoading } = useMyClasses();
+  const join = useJoinClass();
   const [search, setSearch] = useState("");
   const [joinOpen, setJoinOpen] = useState(false);
   const [joinCode, setJoinCode] = useState("");
-  const [joining, setJoining] = useState(false);
 
-  const filtered = mockClasses.filter(
+  const filtered = classes.filter(
     (c) =>
       !search ||
       c.subject_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -37,13 +37,9 @@ export default function ClassesPage() {
 
   function handleJoin() {
     if (!joinCode.trim()) return;
-    setJoining(true);
-    setTimeout(() => {
-      setJoining(false);
-      setJoinOpen(false);
-      setJoinCode("");
-      toast.success("Joined class!", "You've been enrolled in the class.");
-    }, 800);
+    join.mutate(joinCode.trim(), {
+      onSuccess: () => { setJoinOpen(false); setJoinCode(""); },
+    });
   }
 
   return (
@@ -67,15 +63,18 @@ export default function ClassesPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Enrolled Classes" value={mockClasses.length} icon={School} color="purple" delay={0.05} />
-        <StatCard label="Total Students" value={mockClasses.reduce((a, c) => a + c.student_count, 0)} icon={Users} color="cyan" delay={0.1} />
-        <StatCard label="Subjects" value={new Set(mockClasses.map(c => c.subject_id)).size} icon={BookOpen} color="blue" delay={0.15} />
+        <StatCard label="Enrolled Classes" value={classes.length} icon={School} color="purple" delay={0.05} />
+        <StatCard label="Total Students" value={classes.reduce((a, c) => a + (c.student_count ?? 0), 0)} icon={Users} color="cyan" delay={0.1} />
+        <StatCard label="Subjects" value={new Set(classes.map(c => c.subject_id)).size} icon={BookOpen} color="blue" delay={0.15} />
       </div>
 
       {/* Search */}
       <SearchBar value={search} onChange={setSearch} placeholder="Search by subject or teacher…" className="max-w-md" />
 
       {/* Class Cards Grid */}
+      {isLoading ? (
+        <div className="grid grid-cols-2 gap-4"><CardSkeleton /><CardSkeleton /></div>
+      ) : (
       <div className="grid grid-cols-2 gap-4">
         {filtered.map((cls, i) => {
           const colorClass = CLASS_COLORS[i % CLASS_COLORS.length];
@@ -122,7 +121,7 @@ export default function ClassesPage() {
                   </div>
                   <span className="text-xs text-gray-500 flex items-center gap-1">
                     <Users size={11} />
-                    {cls.student_count} students
+                    {cls.student_count ?? 0} students
                   </span>
                 </div>
 
@@ -140,8 +139,9 @@ export default function ClassesPage() {
           );
         })}
       </div>
+      )}
 
-      {filtered.length === 0 && (
+      {!isLoading && filtered.length === 0 && (
         <div className="glass-panel rounded-2xl py-16 text-center">
           <School size={32} className="text-gray-600 mx-auto mb-3" />
           <p className="text-gray-400 text-sm">No classes found. Try joining with a code.</p>
@@ -169,7 +169,7 @@ export default function ClassesPage() {
           </div>
           <div className="flex gap-3 pt-1">
             <Button variant="ghost" onClick={() => setJoinOpen(false)} className="flex-1">Cancel</Button>
-            <Button onClick={handleJoin} loading={joining} disabled={!joinCode.trim()} className="flex-1">
+            <Button onClick={handleJoin} loading={join.isPending} disabled={!joinCode.trim()} className="flex-1">
               Join Class
             </Button>
           </div>
